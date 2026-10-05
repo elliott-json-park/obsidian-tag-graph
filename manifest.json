@@ -1,0 +1,11 @@
+{
+  "id": "tag-graph",
+  "name": "Tag Graph",
+  "version": "1.0.0",
+  "minAppVersion": "1.10.2",
+  "description": "Tag graph view for Bases: tags, folders and properties become hubs. Drag notes to tag them, merge or rename tags, hide rare tags, split tags by folder, and filter heading or block links.",
+  "author": "Elliott Park",
+  "authorUrl": "https://github.com/elliott-json-park",
+  "fundingUrl": "https://github.com/sponsors/elliott-json-park",
+  "isDesktopOnly": false
+}

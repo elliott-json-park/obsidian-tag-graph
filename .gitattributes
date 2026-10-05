@@ -1,0 +1,3 @@
+# Release assets are built on Linux by the release workflow; checking every
+# source file out with LF keeps a Windows build byte-identical to it.
+* text=auto eol=lf

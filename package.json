@@ -1,0 +1,39 @@
+{
+  "name": "tag-graph",
+  "version": "1.0.0",
+  "description": "Tag graph view for Bases: tags, folders and properties become hubs. Drag notes to tag them, merge or rename tags, hide rare tags, split tags by folder, and filter heading or block links.",
+  "main": "main.js",
+  "//": "No \"type\": \"module\" — Obsidian loads main.js as CommonJS. Build scripts use .mjs instead.",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "npm run build && node scripts/test.mjs && node scripts/check-bundle.mjs",
+    "demo-vault": "node scripts/make-demo-vault.mjs"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "bases",
+    "graph",
+    "graph-view",
+    "tags",
+    "tag-management",
+    "properties"
+  ],
+  "author": "Elliott Park",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/d3-force": "^3.0.10",
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.28.2",
+    "obsidian": "^1.13.1",
+    "tslib": "^2.8.1",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "d3-force": "3.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

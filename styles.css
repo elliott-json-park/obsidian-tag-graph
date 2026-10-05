@@ -1,0 +1,385 @@
+/* Tag Graph — a Bases view. Every colour comes from the theme except the
+   facet and note palettes, which are set per element as --fg-color. */
+
+.tag-graph {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  overflow: hidden;
+  background: var(--background-primary);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tag-graph-stage {
+  position: absolute;
+  inset: 0;
+}
+
+.tag-graph-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  cursor: grab;
+  touch-action: none;
+}
+
+.tag-graph-canvas.is-over-node {
+  cursor: pointer;
+}
+
+.tag-graph-canvas.is-dragging {
+  cursor: grabbing;
+}
+
+/* ---------------------------------------------------------------- toolbar */
+
+.tag-graph-toolbar {
+  position: absolute;
+  top: var(--size-4-2);
+  right: var(--size-4-2);
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-1);
+  padding: var(--size-2-1);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-s);
+}
+
+.tag-graph-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.tag-graph-search input {
+  width: 190px;
+  height: var(--input-height);
+  font-size: var(--font-ui-small);
+}
+
+.tag-graph-search-count {
+  position: absolute;
+  right: 26px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.tag-graph-button.is-active {
+  color: var(--interactive-accent);
+}
+
+/* ---------------------------------------------------------------- legend */
+
+.tag-graph-legend {
+  position: absolute;
+  top: var(--size-4-2);
+  left: var(--size-4-2);
+  width: 230px;
+  max-height: calc(100% - 64px);
+  overflow-y: auto;
+  padding: var(--size-4-1) 0;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-s);
+  font-size: var(--font-ui-small);
+}
+
+.tag-graph.is-legend-closed .tag-graph-legend,
+.tag-graph.is-empty .tag-graph-legend {
+  display: none;
+}
+
+.tag-graph-legend-section + .tag-graph-legend-section {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: var(--size-4-1);
+  padding-top: var(--size-4-1);
+}
+
+.tag-graph-legend-head,
+.tag-graph-legend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: 2px var(--size-4-2) 2px var(--size-4-3);
+  min-height: 26px;
+}
+
+.tag-graph-legend-head {
+  font-weight: var(--font-semibold);
+  color: var(--text-normal);
+}
+
+.tag-graph-legend-section.is-hidden .tag-graph-legend-head {
+  color: var(--text-faint);
+}
+
+.tag-graph-legend-row {
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-s);
+  margin: 0 var(--size-4-1);
+  padding-left: var(--size-4-2);
+}
+
+.tag-graph-legend-row:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.tag-graph-legend-row.is-static {
+  cursor: default;
+}
+
+.tag-graph-legend-row.is-focused {
+  background: var(--background-modifier-active-hover);
+  color: var(--text-normal);
+}
+
+.tag-graph-legend-row.is-hidden .tag-graph-legend-label,
+.tag-graph-legend-row.is-hidden .tag-graph-legend-count,
+.tag-graph-legend-row.is-hidden .tag-graph-swatch,
+.tag-graph-legend-row.is-hidden .tag-graph-line {
+  opacity: 0.4;
+}
+
+.tag-graph-legend-title,
+.tag-graph-legend-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-graph-legend-count {
+  flex: none;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-ui-smaller);
+}
+
+.tag-graph-eye {
+  flex: none;
+  padding: 2px;
+  opacity: 0.55;
+}
+
+.tag-graph-legend-row:hover .tag-graph-eye,
+.tag-graph-legend-head:hover .tag-graph-eye,
+.tag-graph-legend-row.is-hidden .tag-graph-eye,
+.tag-graph-legend-section.is-hidden .tag-graph-eye {
+  opacity: 1;
+}
+
+.tag-graph-eye svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tag-graph-legend-more,
+.tag-graph-legend-note {
+  padding: 2px var(--size-4-3) 2px calc(var(--size-4-3) + 18px);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.tag-graph-legend-more {
+  cursor: pointer;
+  color: var(--text-accent);
+}
+
+.tag-graph-legend-more:hover {
+  text-decoration: underline;
+}
+
+.tag-graph-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--fg-color);
+}
+
+.tag-graph-swatch.is-hub {
+  background: color-mix(in srgb, var(--fg-color) 22%, var(--background-primary));
+  border: 2px solid var(--fg-color);
+  width: 12px;
+  height: 12px;
+}
+
+.tag-graph-line {
+  flex: none;
+  width: 18px;
+  height: 0;
+  border-top: 2px solid var(--text-muted);
+}
+
+.tag-graph-line.is-heading { border-top-style: dashed; }
+.tag-graph-line.is-block { border-top-style: dotted; }
+.tag-graph-line.is-property { border-top-color: var(--interactive-accent); }
+.tag-graph-line.is-embed { border-top-style: double; border-top-width: 3px; }
+
+/* ---------------------------------------------------------------- tooltip */
+
+.tag-graph-tip {
+  position: absolute;
+  left: var(--fg-x, 0);
+  top: var(--fg-y, 0);
+  max-width: 280px;
+  padding: var(--size-4-2) var(--size-4-3);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-s);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 80ms ease-out;
+  z-index: 2;
+}
+
+.tag-graph-tip.is-visible {
+  opacity: 1;
+}
+
+.tag-graph-tip-title {
+  font-weight: var(--font-semibold);
+  color: var(--text-normal);
+  overflow-wrap: anywhere;
+}
+
+.tag-graph-tip-sub {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.tag-graph-tip-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.tag-graph-chip {
+  font-size: var(--font-ui-smaller);
+  padding: 0 6px;
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  background: color-mix(in srgb, var(--fg-color) 16%, var(--background-primary));
+  border: 1px solid color-mix(in srgb, var(--fg-color) 45%, transparent);
+}
+
+/* ---------------------------------------------------------------- status, hint, empty */
+
+.tag-graph-status {
+  position: absolute;
+  left: var(--size-4-3);
+  bottom: var(--size-4-2);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.tag-graph-hint {
+  position: absolute;
+  left: 50%;
+  bottom: var(--size-4-2);
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: var(--size-4-2);
+  max-width: calc(100% - 200px);
+  padding: var(--size-2-2) var(--size-4-2) var(--size-2-2) var(--size-4-3);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-s);
+}
+
+.tag-graph.has-hint .tag-graph-hint {
+  display: flex;
+}
+
+.tag-graph-hint-dismiss {
+  flex: none;
+  font-size: var(--font-ui-smaller);
+  padding: 0 var(--size-4-2);
+  height: 22px;
+}
+
+.tag-graph-empty {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: var(--size-4-1);
+  padding: var(--size-4-8);
+  text-align: center;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.tag-graph.is-empty .tag-graph-empty {
+  display: flex;
+}
+
+.tag-graph-empty-title {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  color: var(--text-normal);
+}
+
+/* ---------------------------------------------------------------- modals */
+
+.tag-graph-rename-input {
+  width: 100%;
+}
+
+.tag-graph-rename-error {
+  min-height: 1.4em;
+  margin-top: var(--size-4-1);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-error);
+}
+
+/* ---------------------------------------------------------------- narrow */
+/* Set by the view from its own width, so a narrow embed or sidebar gets this
+   too, not only a narrow window. */
+
+.tag-graph.is-narrow .tag-graph-toolbar {
+  left: var(--size-4-2);
+  justify-content: flex-end;
+}
+
+.tag-graph.is-narrow .tag-graph-search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tag-graph.is-narrow .tag-graph-search input {
+  width: 100%;
+  min-width: 60px;
+}
+
+.tag-graph.is-narrow .tag-graph-legend {
+  top: 56px;
+  width: min(230px, calc(100% - 16px));
+  max-height: calc(100% - 96px);
+}
+
+.tag-graph.is-narrow .tag-graph-hint,
+.tag-graph.is-narrow.has-hint .tag-graph-hint,
+.tag-graph.is-narrow .tag-graph-status {
+  display: none;
+}
