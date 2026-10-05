@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- The plugin description no longer starts with the plugin name, as the community directory asks.
+
 ## 1.0.0
 
 First release.

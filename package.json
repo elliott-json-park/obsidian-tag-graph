@@ -1,7 +1,7 @@
 {
   "name": "tag-graph",
-  "version": "1.0.0",
-  "description": "Tag graph view for Bases: tags, folders and properties become hubs. Drag notes to tag them, merge or rename tags, hide rare tags, split tags by folder, and filter heading or block links.",
+  "version": "1.0.1",
+  "description": "Graph view for Bases where tags, folders and properties become hubs. Drag notes to tag them, merge or rename tags, hide rare tags, split tags by folder, and filter heading or block links.",
   "main": "main.js",
   "//": "No \"type\": \"module\" — Obsidian loads main.js as CommonJS. Build scripts use .mjs instead.",
   "scripts": {
