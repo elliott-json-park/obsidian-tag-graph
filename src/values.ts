@@ -64,7 +64,7 @@ export class Resolver {
     if (spec.kind === 'text' || spec.kind === 'link') {
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
       const name = parsePropertyId(spec.id as BasesPropertyId).name;
-      const v = fm ? fm[frontmatterKey(fm, name)] : undefined;
+      const v: unknown = fm ? (fm as Record<string, unknown>)[frontmatterKey(fm, name)] : undefined;
       const raws = rawValues(v);
       return {
         values: raws.map(r => this.valueOf('text', r, file.path)),

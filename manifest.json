@@ -1,7 +1,7 @@
 {
   "id": "tag-graph",
   "name": "Tag Graph",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "minAppVersion": "1.10.2",
   "description": "Graph view for Bases where tags, folders and properties become hubs. Drag notes to tag them, merge or rename tags, hide rare tags, split tags by folder, and filter heading or block links.",
   "author": "Elliott Park",

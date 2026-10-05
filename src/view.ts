@@ -709,7 +709,7 @@ export class TagGraphView extends BasesView implements HoverParent {
     const name = f.kind === 'tags' ? 'tags' : parsePropertyId(f.id as BasesPropertyId).name;
     const written = f.kind === 'tags' ? v.label.replace(/^#/, '')
       : v.notePath || v.key.startsWith('link:') ? '[[' + v.label + ']]' : v.label;
-    await this.createFileForView(undefined, fm => {
+    await this.createFileForView(undefined, (fm: Record<string, unknown>) => {
       if (f.kind === 'tags') fmAddTag(fm, written, () => false);
       else fmAdd(fm, name, written, f.list, () => false);
     });

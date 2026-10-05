@@ -9,6 +9,9 @@ import { fmAdd, fmAddTag, fmRemove, fmRemoveTag, fmReplace, fmReplaceTag, rewrit
 import { Resolver, frontmatterKey } from './values';
 import { t } from './i18n';
 
+/** The frontmatter object processFrontMatter hands over. */
+type FM = Record<string, unknown>;
+
 interface FileSnap { path: string; before: string; after: string }
 interface MoveSnap { from: string; to: string }
 interface Op { files: FileSnap[]; moves: MoveSnap[] }
@@ -99,10 +102,10 @@ export class Actions {
     let replaced = false;
     const snaps = await this.edit([file], async f => {
       let changed = false;
-      await this.app.fileManager.processFrontMatter(f, fm => {
+      await this.app.fileManager.processFrontMatter(f, (fm: FM) => {
         if (facet.kind === 'tags') { changed = fmAddTag(fm, written, same); return; }
         const key = frontmatterKey(fm, parsePropertyId(facet.id as `note.${string}`).name);
-        const cur = fm[key];
+        const cur: unknown = fm[key];
         replaced = !facet.list && !Array.isArray(cur) && cur !== undefined && cur !== null && cur !== '';
         changed = fmAdd(fm, key, written, facet.list, same);
       });
@@ -120,7 +123,7 @@ export class Actions {
     const snaps = await this.edit([file], async f => {
       const body = facet.kind === 'tags' ? await this.editBodyTags(f, same, null) : false;
       let changed = false;
-      await this.app.fileManager.processFrontMatter(f, fm => {
+      await this.app.fileManager.processFrontMatter(f, (fm: FM) => {
         if (facet.kind === 'tags') { changed = fmRemoveTag(fm, same); return; }
         const key = frontmatterKey(fm, parsePropertyId(facet.id as `note.${string}`).name);
         changed = fmRemove(fm, key, same);
@@ -141,7 +144,7 @@ export class Actions {
       const sameAsNew = this.matcher(facet, facet.kind === 'tags' ? tagKey(written) : to.key, f.path);
       const body = facet.kind === 'tags' ? await this.editBodyTags(f, same, written) : false;
       let changed = false;
-      await this.app.fileManager.processFrontMatter(f, fm => {
+      await this.app.fileManager.processFrontMatter(f, (fm: FM) => {
         if (facet.kind === 'tags') { changed = fmReplaceTag(fm, same, written, sameAsNew); return; }
         const key = frontmatterKey(fm, parsePropertyId(facet.id as `note.${string}`).name);
         changed = fmReplace(fm, key, same, written, sameAsNew);
@@ -179,7 +182,7 @@ export class Actions {
     const same: Matcher = raw => this.resolver.keyOf('text', raw, file.path) === 'link:' + target.path;
     const snaps = await this.edit([file], async f => {
       let changed = false;
-      await this.app.fileManager.processFrontMatter(f, fm => {
+      await this.app.fileManager.processFrontMatter(f, (fm: FM) => {
         changed = fmAdd(fm, frontmatterKey(fm, property), written, true, same);
       });
       return changed;

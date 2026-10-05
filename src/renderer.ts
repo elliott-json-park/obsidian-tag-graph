@@ -134,7 +134,7 @@ export class Renderer {
 
   destroy(): void {
     this.destroyed = true;
-    cancelAnimationFrame(this.raf);
+    window.cancelAnimationFrame(this.raf);
     this.ro.disconnect();
     this.sim?.stop();
     this.clearPress();
@@ -692,7 +692,7 @@ export class Renderer {
 
   private loop(): void {
     if (this.raf || this.destroyed) return;
-    this.raf = requestAnimationFrame(() => {
+    this.raf = window.requestAnimationFrame(() => {
       this.raf = 0;
       if (this.destroyed) return;
       let again = false;

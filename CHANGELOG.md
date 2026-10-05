@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- Settings appear in Obsidian's settings search on 1.13 and later.
+- Graph redraws use the window they are drawn in, so the view also works in a pop-out window.
+- Stricter types around frontmatter edits (no change in behaviour).
+
 ## 1.0.1
 
 - The plugin description no longer starts with the plugin name, as the community directory asks.

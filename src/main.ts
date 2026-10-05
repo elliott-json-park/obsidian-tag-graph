@@ -1,4 +1,4 @@
-import { App, Notice, Plugin, PluginSettingTab, Setting, TFile, normalizePath } from 'obsidian';
+import { App, Notice, Plugin, PluginSettingTab, Setting, SettingDefinitionItem, TFile, normalizePath } from 'obsidian';
 import { TagGraphView, VIEW_TYPE, viewOptions } from './view';
 import { Actions } from './actions';
 import { initI18n, t } from './i18n';
@@ -76,7 +76,8 @@ export default class TagGraphPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULTS, await this.loadData());
+    const saved = (await this.loadData()) as Partial<TagGraphSettings> | null;
+    this.settings = Object.assign({}, DEFAULTS, saved);
   }
 
   async saveSettings(): Promise<void> {
@@ -84,26 +85,51 @@ export default class TagGraphPlugin extends Plugin {
   }
 }
 
+type ToggleKey = keyof TagGraphSettings;
+
+/** Name and description of every toggle, shared by both ways of drawing the tab. */
+function toggles(): { key: ToggleKey; name: string; desc: string }[] {
+  return [
+    { key: 'confirmBulk', name: t('set.confirmBulk'), desc: t('set.confirmBulk.desc') },
+    { key: 'confirmMoves', name: t('set.confirmMoves'), desc: t('set.confirmMoves.desc') },
+    { key: 'inlineTags', name: t('set.inlineTags'), desc: t('set.inlineTags.desc') },
+    { key: 'animate', name: t('set.motion'), desc: t('set.motion.desc') },
+    { key: 'showHints', name: t('set.hints'), desc: t('set.hints.desc') },
+  ];
+}
+
 class TagGraphSettingTab extends PluginSettingTab {
   constructor(app: App, private plugin: TagGraphPlugin) {
     super(app, plugin);
   }
 
+  /** 1.13+: declared settings, so they show up in Obsidian's settings search. */
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return toggles().map(({ key, name, desc }) => ({ name, desc, control: { type: 'toggle' as const, key } }));
+  }
+
+  getControlValue(key: string): unknown {
+    return this.plugin.settings[key as ToggleKey];
+  }
+
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    await this.apply(key as ToggleKey, value === true);
+  }
+
+  private async apply(key: ToggleKey, value: boolean): Promise<void> {
+    this.plugin.settings[key] = value;
+    await this.plugin.saveSettings();
+    for (const view of this.plugin.views) view.refresh();
+  }
+
+  /** Before 1.13: the same toggles, drawn by hand. */
   display(): void {
     const el = this.containerEl;
     el.empty();
-    const toggle = (key: keyof TagGraphSettings, name: string, desc: string) =>
+    for (const { key, name, desc } of toggles()) {
       new Setting(el).setName(name).setDesc(desc).addToggle(tg => tg
         .setValue(this.plugin.settings[key])
-        .onChange(async v => {
-          this.plugin.settings[key] = v;
-          await this.plugin.saveSettings();
-          for (const view of this.plugin.views) view.refresh();
-        }));
-    toggle('confirmBulk', t('set.confirmBulk'), t('set.confirmBulk.desc'));
-    toggle('confirmMoves', t('set.confirmMoves'), t('set.confirmMoves.desc'));
-    toggle('inlineTags', t('set.inlineTags'), t('set.inlineTags.desc'));
-    toggle('animate', t('set.motion'), t('set.motion.desc'));
-    toggle('showHints', t('set.hints'), t('set.hints.desc'));
+        .onChange(v => { void this.apply(key, v); }));
+    }
   }
 }
