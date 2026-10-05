@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+
+- Code clean-up flagged by the directory review (no change in behaviour).
+
 ## 1.0.2
 
 - Settings appear in Obsidian's settings search on 1.13 and later.

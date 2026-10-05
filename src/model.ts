@@ -300,7 +300,11 @@ export function bodyLinkKind(link: string): LinkKind {
 /** Flatten one frontmatter value into strings: lists, scalars, nothing for null/objects. */
 export function rawValues(v: unknown): string[] {
   if (v === null || v === undefined) return [];
-  if (Array.isArray(v)) return (v as unknown[]).flatMap(x => rawValues(x));
+  if (Array.isArray(v)) {
+    const out: string[] = [];
+    for (const x of v as unknown[]) out.push(...rawValues(x));
+    return out;
+  }
   if (typeof v === 'string') { const s = v.trim(); return s ? [s] : []; }
   if (typeof v === 'number' || typeof v === 'boolean') return [String(v)];
   return [];
