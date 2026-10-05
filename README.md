@@ -9,7 +9,7 @@ other still end up side by side when they share a tag, so a vault held together
 by tags and properties finally has a shape you can see. And the graph is not
 read-only: drop a note on a tag to tag it, drop one tag on another to merge them.
 
-![Tag Graph in a dark theme: 55 notes drawn around 18 tag hubs, coloured by top-level folder, with the legend listing tags, link kinds and folders](docs/hero.png)
+![Tag Graph: 55 notes drawn around 18 tag hubs, coloured by top-level folder, with the legend listing tags, link kinds and folders](docs/hero.png)
 
 ![Dragging a task onto the "done" hub: its connections stay highlighted, a badge says "Set status to done", and on release the note is changed and an Undo notice appears](docs/drag.gif)
 
@@ -73,6 +73,10 @@ straight to the project note when that note is in the graph.
 
 Notes are coloured by any property you choose, by the base's grouping, or — by
 default — by top-level folder, so where a note lives shows at a glance.
+
+It follows your theme, light or dark:
+
+![The same tag graph in a dark theme](docs/hero-dark.png)
 
 ---
 
