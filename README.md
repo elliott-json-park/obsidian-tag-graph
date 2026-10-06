@@ -94,6 +94,10 @@ It follows your theme, light or dark:
 - **Click** a note to open it (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>-click: new tab).
   <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>-hover for a page preview.
 - **Click** a tag to highlight its notes. **Double-click** it to zoom to them.
+  The same works in the legend, and **hovering** a legend row previews its
+  notes on the graph.
+- **Hover** a node and its connections fade in while the rest fades back —
+  quickly, but without a jolt.
 - **Drag** to edit. While you drag, the note's own connections stay highlighted
   and the target under the pointer holds still.
 - **Scroll** to zoom, **drag the background** to pan. <kbd>Esc</kbd> cancels a
@@ -111,6 +115,22 @@ It follows your theme, light or dark:
 | Colour notes by | grouping, else top-level folder | |
 | Show notes with no connections | on | |
 | Note dropped on note links it in | `related` | Leave empty to switch off |
+
+### Graph settings
+
+The gear button in the graph's toolbar opens the controls you know from
+Obsidian's own graph view, with the same ranges and defaults. Changes show
+while you drag a slider and are saved with the view, in the `.base` file.
+
+![The graph settings panel next to the graph: Filters, Display and Forces](docs/settings.png)
+
+| Section | Controls |
+|---|---|
+| Filters | Each hub property on or off (e.g. Tags), orphans, the rare-value cut-off |
+| Display | Arrows (on note-to-note links; both ways when the notes link each other), text fade threshold, node size, link thickness, lay out again |
+| Forces | Center force, repel force, link force, link distance |
+
+The ↻ button puts every control back to its default.
 
 ### Settings
 

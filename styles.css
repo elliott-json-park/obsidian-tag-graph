@@ -36,10 +36,25 @@
 
 /* ---------------------------------------------------------------- toolbar */
 
-.tag-graph-toolbar {
+/* The toolbar, and the settings panel under it. */
+.tag-graph-side {
   position: absolute;
   top: var(--size-4-2);
   right: var(--size-4-2);
+  bottom: var(--size-4-8);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--size-4-2);
+  pointer-events: none;
+}
+
+.tag-graph-side > * {
+  pointer-events: auto;
+}
+
+.tag-graph-toolbar {
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--size-2-1);
@@ -72,6 +87,109 @@
 
 .tag-graph-button.is-active {
   color: var(--interactive-accent);
+}
+
+/* ---------------------------------------------------------------- settings panel */
+/* Laid out like the controls of Obsidian's own graph view. */
+
+.tag-graph-panel {
+  display: none;
+  flex: 0 1 auto;
+  width: 240px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--size-4-1) 0;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-s);
+  font-size: var(--font-ui-small);
+}
+
+.tag-graph.is-panel-open .tag-graph-panel {
+  display: block;
+}
+
+.tag-graph-panel-section + .tag-graph-panel-section {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: var(--size-4-1);
+  padding-top: var(--size-4-1);
+}
+
+.tag-graph-panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-1);
+  padding: 0 var(--size-4-1) 0 var(--size-4-2);
+  min-height: 28px;
+}
+
+.tag-graph-panel-fold {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  min-height: 26px;
+  font-weight: var(--font-semibold);
+  color: var(--text-normal);
+  cursor: pointer;
+  border-radius: var(--radius-s);
+}
+
+.tag-graph-panel-chevron {
+  display: flex;
+  color: var(--text-faint);
+}
+
+.tag-graph-panel-chevron svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tag-graph-panel-body {
+  padding: 0 var(--size-4-3) var(--size-4-1);
+}
+
+.tag-graph-panel-item {
+  padding: var(--size-2-2) 0;
+}
+
+.tag-graph-panel-item.is-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+}
+
+.tag-graph-panel-name {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.tag-graph-panel-slider {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-top: var(--size-2-1);
+}
+
+.tag-graph-panel-value {
+  flex: none;
+  min-width: 34px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-graph-panel-slider .slider {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tag-graph-panel-buttons {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--size-4-1);
 }
 
 /* ---------------------------------------------------------------- legend */
@@ -267,6 +385,12 @@
   margin-top: 6px;
 }
 
+.tag-graph-tip-hint {
+  margin-top: 6px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
 .tag-graph-chip {
   font-size: var(--font-ui-smaller);
   padding: 0 6px;
@@ -357,9 +481,17 @@
 /* Set by the view from its own width, so a narrow embed or sidebar gets this
    too, not only a narrow window. */
 
-.tag-graph.is-narrow .tag-graph-toolbar {
+.tag-graph.is-narrow .tag-graph-side {
   left: var(--size-4-2);
+  align-items: stretch;
+}
+
+.tag-graph.is-narrow .tag-graph-toolbar {
   justify-content: flex-end;
+}
+
+.tag-graph.is-narrow .tag-graph-panel {
+  width: auto;
 }
 
 .tag-graph.is-narrow .tag-graph-search {

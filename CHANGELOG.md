@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0
+
+- **Graph settings**: a gear button opens the controls of Obsidian's graph
+  view — filters (each hub property, orphans, rare values), display (arrows,
+  text fade threshold, node size, link thickness) and forces (center, repel,
+  link force, link distance). Changes apply live and are saved with the view.
+- Hovering a node now fades its connections in and the rest out, instead of
+  switching at once. Note names also fade in as you zoom, instead of popping.
+- Hover a legend row to preview its notes on the graph; double-click it to zoom
+  to them.
+- Double-clicking a tag keeps it highlighted after zooming (it used to end up
+  unhighlighted).
+- Tooltips say what a click does, for as long as the editing hint is shown.
+- "Lay out again" moved from the toolbar into the graph settings; it is still in
+  the right-click menu.
+
 ## 1.0.3
 
 - Code clean-up flagged by the directory review (no change in behaviour).

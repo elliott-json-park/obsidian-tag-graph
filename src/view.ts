@@ -1,13 +1,13 @@
 import {
   BasesAllOptions, BasesPropertyId, BasesView, HoverParent, HoverPopover, Keymap, Menu, Modal,
-  QueryController, Setting, TFile, parsePropertyId, setIcon,
+  QueryController, Setting, TFile, ToggleComponent, parsePropertyId, setIcon,
 } from 'obsidian';
 import type TagGraphPlugin from './main';
 import {
   FacetSpec, FacetValue, GNode, GraphModel, LINK_KINDS, LinkKind, NoteInput,
   buildGraph, hubKey, hubId, noteId, paletteColor, tagLabel, tagKey,
 } from './model';
-import { Renderer, DropVerdict } from './renderer';
+import { Renderer, DropVerdict, GRAPH_DEFAULTS, GraphSettings } from './renderer';
 import { Resolver, facetSpec } from './values';
 import { fmAdd, fmAddTag, validTag } from './frontmatter';
 import { t } from './i18n';
@@ -18,6 +18,24 @@ export const VIEW_TYPE = 'tag-graph';
 const FACET_COLORS = ['#8b6cf0', '#e08a3c', '#22a38b', '#d4588f'];
 const FACET_KEYS = ['facet1', 'facet2', 'facet3', 'facet4'];
 const LEGEND_ROWS = 8;
+
+type NumberSetting = Exclude<keyof GraphSettings, 'arrows'>;
+interface SliderSpec { key: NumberSetting; min: number; max: number; step: number }
+
+/** The graph settings panel's sliders. Ranges follow Obsidian's graph view where it has one. */
+const DISPLAY_SLIDERS: SliderSpec[] = [
+  { key: 'textFade', min: -3, max: 3, step: 0.1 },
+  { key: 'nodeSize', min: 0.25, max: 3, step: 0.05 },
+  { key: 'linkWidth', min: 0.25, max: 4, step: 0.05 },
+];
+const FORCE_SLIDERS: SliderSpec[] = [
+  { key: 'centerForce', min: 0, max: 1, step: 0.01 },
+  { key: 'repelForce', min: 0, max: 20, step: 0.1 },
+  { key: 'linkForce', min: 0, max: 1, step: 0.01 },
+  { key: 'linkDistance', min: 30, max: 500, step: 1 },
+];
+const GRAPH_KEYS = Object.keys(GRAPH_DEFAULTS) as (keyof GraphSettings)[];
+type PanelSection = 'filter' | 'display' | 'forces';
 
 const facetPropertyFilter = (p: BasesPropertyId) =>
   p.startsWith('note.') || p.startsWith('formula.') || p === 'file.tags' || p === 'file.folder' || p === 'file.ext';
@@ -58,6 +76,8 @@ export class TagGraphView extends BasesView implements HoverParent {
   private searchEl: HTMLInputElement;
   private searchCount: HTMLElement;
   private freezeBtn: HTMLElement;
+  private panelBtn: HTMLElement;
+  private panelEl: HTMLElement;
   private resolver: Resolver;
 
   private model: GraphModel | null = null;
@@ -72,6 +92,11 @@ export class TagGraphView extends BasesView implements HoverParent {
   /** Narrow (a sidebar, a small embed, a phone): the legend starts closed and is opened per session. */
   private narrow = false;
   private narrowLegend = false;
+  /** The graph settings panel: open or not, and which of its sections are folded. Per view, not saved. */
+  private panelOpen = false;
+  private folded = new Set<PanelSection>();
+  /** A panel slider is being dragged: a redraw of the panel now would drop it. */
+  private sliding = false;
 
   constructor(controller: QueryController, containerEl: HTMLElement, private plugin: TagGraphPlugin) {
     super(controller);
@@ -90,12 +115,15 @@ export class TagGraphView extends BasesView implements HoverParent {
     });
 
     this.legendEl = this.root.createDiv({ cls: 'tag-graph-legend' });
+    // A row can be redrawn under the pointer and miss its own mouseleave.
+    this.legendEl.addEventListener('mouseleave', () => this.renderer.setPreview(null));
     this.tipEl = this.root.createDiv({ cls: 'tag-graph-tip' });
     this.emptyEl = this.root.createDiv({ cls: 'tag-graph-empty' });
     this.statusEl = this.root.createDiv({ cls: 'tag-graph-status' });
     this.hintEl = this.root.createDiv({ cls: 'tag-graph-hint' });
 
-    const bar = this.root.createDiv({ cls: 'tag-graph-toolbar' });
+    const side = this.root.createDiv({ cls: 'tag-graph-side' });
+    const bar = side.createDiv({ cls: 'tag-graph-toolbar' });
     const search = bar.createDiv({ cls: 'tag-graph-search' });
     this.searchEl = search.createEl('input', { type: 'search', attr: { placeholder: t('ui.search'), 'aria-label': t('ui.search') } });
     this.searchCount = search.createSpan({ cls: 'tag-graph-search-count' });
@@ -105,13 +133,20 @@ export class TagGraphView extends BasesView implements HoverParent {
       if (ev.key === 'Escape') { this.searchEl.value = ''; this.onSearch(); this.renderer.canvas.focus(); }
     });
     this.button(bar, 'list', t('ui.legend'), () => {
-      if (this.narrow) this.narrowLegend = !this.narrowLegend;
-      else this.config.set('legendOpen', this.config.get('legendOpen') === false);
+      if (this.narrow) {
+        this.narrowLegend = !this.narrowLegend;
+        // On a narrow pane the legend and the panel would cover each other.
+        if (this.narrowLegend && this.panelOpen) this.setPanel(false);
+      } else this.config.set('legendOpen', this.config.get('legendOpen') === false);
       this.applyLegend();
     });
     this.button(bar, 'maximize', t('ui.fit'), () => this.renderer.fit());
     this.freezeBtn = this.button(bar, 'snowflake', t('ui.freeze'), () => this.setFrozen(!this.renderer.frozen));
-    this.button(bar, 'refresh-cw', t('ui.relayout'), () => this.renderer.relayout());
+    this.panelBtn = this.button(bar, 'settings', t('ui.settings'), () => this.setPanel(!this.panelOpen));
+    this.panelEl = side.createDiv({ cls: 'tag-graph-panel' });
+    this.panelEl.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape') { ev.stopPropagation(); this.setPanel(false); this.panelBtn.focus(); }
+    });
 
     this.registerEvent(this.plugin.app.workspace.on('css-change', () => { this.readTheme(); this.renderer.refresh(); }));
     const ro = new ResizeObserver(() => {
@@ -267,7 +302,9 @@ export class TagGraphView extends BasesView implements HoverParent {
     this.root.toggleClass('is-legend-closed', !this.legendOpen());
     this.renderLegend();
     this.renderEmpty(entries.length, facets.length);
+    if (this.panelOpen && !this.sliding) this.renderPanel();
     this.updateInsets();
+    this.renderer.setSettings(this.graphSettings());
     this.renderer.setGraph(model, { animate: this.plugin.settings.animate });
     this.renderHint();
     if (this.searchEl.value) this.onSearch();
@@ -288,12 +325,170 @@ export class TagGraphView extends BasesView implements HoverParent {
   private updateInsets(): void {
     const r = this.root.getBoundingClientRect();
     const legend = this.legendOpen() && !this.root.hasClass('is-empty') ? this.legendEl.getBoundingClientRect() : null;
+    const panel = this.panelOpen && !this.narrow ? this.panelEl.getBoundingClientRect() : null;
     this.renderer.insets = {
       left: legend && legend.width ? legend.right - r.left + 8 : 0,
       top: 52,
-      right: 0,
+      right: panel && panel.width ? r.right - panel.left + 8 : 0,
       bottom: 28,
     };
+  }
+
+  /* ================================================================ graph settings */
+
+  /** The panel's values, from the view's config, each kept inside its slider's range. */
+  private graphSettings(): GraphSettings {
+    const out: GraphSettings = { ...GRAPH_DEFAULTS };
+    const arrows = this.config.get('arrows');
+    if (typeof arrows === 'boolean') out.arrows = arrows;
+    for (const s of [...DISPLAY_SLIDERS, ...FORCE_SLIDERS]) {
+      const raw = this.config.get(s.key);
+      const v = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw) : NaN;
+      if (Number.isFinite(v)) out[s.key] = Math.max(s.min, Math.min(s.max, v));
+    }
+    return out;
+  }
+
+  /** Store a panel value; the default is stored as nothing, so the .base file stays clean. */
+  private storeSetting(key: keyof GraphSettings, value: number | boolean): void {
+    this.config.set(key, value === GRAPH_DEFAULTS[key] ? null : value);
+  }
+
+  private setPanel(open: boolean): void {
+    this.panelOpen = open;
+    this.root.toggleClass('is-panel-open', open);
+    this.panelBtn.toggleClass('is-active', open);
+    if (open) {
+      if (this.narrow && this.narrowLegend) { this.narrowLegend = false; this.applyLegend(); }
+      this.renderPanel();
+    } else {
+      this.panelEl.empty();
+    }
+    this.updateInsets();
+  }
+
+  private renderPanel(): void {
+    const el = this.panelEl;
+    el.empty();
+    const gs = this.graphSettings();
+
+    /* filters: the graph view's "Tags" and "Orphans", plus the rare-value cut-off */
+    const filter = this.panelSection(el, 'filter', t('panel.filter'), true);
+    if (filter) {
+      for (const lf of this.model ? this.model.legend : []) {
+        this.panelToggle(filter, lf.facet.label, !lf.hidden, () => this.toggleHidden(lf.facet.id));
+      }
+      this.panelToggle(filter, t('panel.orphans'), this.bool('showIsolated', true), v => {
+        this.config.set('showIsolated', v ? null : false);
+        this.rebuild();
+      });
+      this.panelSlider(filter, t('opt.minCount'), { min: 1, max: 20, step: 1 }, this.num('minCount', 2), null, v => {
+        this.config.set('minCount', v);
+        this.rebuild();
+      });
+    }
+
+    /* display */
+    const display = this.panelSection(el, 'display', t('panel.display'));
+    if (display) {
+      this.panelToggle(display, t('panel.arrows'), gs.arrows, v => this.liveSetting('arrows', v, true));
+      for (const s of DISPLAY_SLIDERS) {
+        this.panelSlider(display, t(('panel.' + s.key) as 'panel.textFade'), s, gs[s.key],
+          v => this.liveSetting(s.key, v, false), v => this.liveSetting(s.key, v, true));
+      }
+      const row = display.createDiv({ cls: 'tag-graph-panel-buttons' });
+      const b = row.createEl('button', { text: t('ui.relayout') });
+      b.addEventListener('click', () => this.renderer.relayout());
+    }
+
+    /* forces */
+    const forces = this.panelSection(el, 'forces', t('panel.forces'));
+    if (forces) {
+      for (const s of FORCE_SLIDERS) {
+        this.panelSlider(forces, t(('panel.' + s.key) as 'panel.centerForce'), s, gs[s.key],
+          v => this.liveSetting(s.key, v, false), v => this.liveSetting(s.key, v, true));
+      }
+    }
+  }
+
+  /** Apply a panel value to the graph now; store it once the control is let go. */
+  private liveSetting(key: keyof GraphSettings, value: number | boolean, store: boolean): void {
+    const gs = this.graphSettings();
+    (gs as unknown as Record<string, number | boolean>)[key] = value;
+    this.renderer.setSettings(gs);
+    if (store) this.storeSetting(key, value);
+  }
+
+  private resetPanel(): void {
+    for (const key of GRAPH_KEYS) this.config.set(key, null);
+    this.config.set('showIsolated', null);
+    this.config.set('minCount', null);
+    const hidden = this.hiddenSet();
+    for (const f of this.facets) hidden.delete(f.id);
+    this.config.set('hidden', hidden.size ? [...hidden] : null);
+    this.rebuild();
+    if (this.panelOpen) this.renderPanel();
+  }
+
+  /** A foldable section. The first one also carries the panel's reset and close buttons. Returns its body, or null if folded. */
+  private panelSection(parent: HTMLElement, id: PanelSection, title: string, first = false): HTMLElement | null {
+    const sec = parent.createDiv({ cls: 'tag-graph-panel-section' });
+    const head = sec.createDiv({ cls: 'tag-graph-panel-head' });
+    const folded = this.folded.has(id);
+    const fold = head.createDiv({ cls: 'tag-graph-panel-fold', attr: { role: 'button', tabindex: '0', 'aria-expanded': String(!folded) } });
+    setIcon(fold.createSpan({ cls: 'tag-graph-panel-chevron' }), folded ? 'chevron-right' : 'chevron-down');
+    fold.createSpan({ text: title });
+    const toggle = () => {
+      if (this.folded.has(id)) this.folded.delete(id); else this.folded.add(id);
+      this.renderPanel();
+      this.updateInsets();
+    };
+    fold.addEventListener('click', toggle);
+    fold.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } });
+    if (first) {
+      this.button(head, 'rotate-ccw', t('panel.reset'), () => this.resetPanel());
+      this.button(head, 'x', t('panel.close'), () => this.setPanel(false));
+    }
+    return folded ? null : sec.createDiv({ cls: 'tag-graph-panel-body' });
+  }
+
+  private panelToggle(parent: HTMLElement, name: string, value: boolean, onChange: (v: boolean) => void): void {
+    const row = parent.createDiv({ cls: 'tag-graph-panel-item is-toggle' });
+    row.createDiv({ cls: 'tag-graph-panel-name', text: name });
+    new ToggleComponent(row).setValue(value).onChange(onChange);
+  }
+
+  /**
+   * Name above, value and slider below, as in Obsidian's graph settings.
+   * `onInput` runs while dragging (null: only the number follows), `onDone` on release.
+   */
+  private panelSlider(parent: HTMLElement, name: string, s: { min: number; max: number; step: number }, value: number,
+    onInput: ((v: number) => void) | null, onDone: (v: number) => void): void {
+    const item = parent.createDiv({ cls: 'tag-graph-panel-item' });
+    item.createDiv({ cls: 'tag-graph-panel-name', text: name });
+    const line = item.createDiv({ cls: 'tag-graph-panel-slider' });
+    const digits = s.step >= 1 ? 0 : 2;
+    const out = line.createSpan({ cls: 'tag-graph-panel-value', text: value.toFixed(digits) });
+    const input = line.createEl('input', {
+      type: 'range', cls: 'slider',
+      attr: { min: String(s.min), max: String(s.max), step: String(s.step), 'aria-label': name },
+    });
+    input.value = String(value);
+    // Newer Obsidian fills the track up to the thumb from this ratio; older versions ignore it.
+    const fill = (v: number) => input.setCssProps({ '--slider-fill-ratio': String((v - s.min) / (s.max - s.min)) });
+    fill(value);
+    input.addEventListener('input', () => fill(Number(input.value)));
+    input.addEventListener('pointerdown', () => { this.sliding = true; });
+    for (const type of ['pointerup', 'pointercancel']) input.addEventListener(type, () => { this.sliding = false; });
+    input.addEventListener('input', () => {
+      const v = Number(input.value);
+      out.setText(v.toFixed(digits));
+      if (onInput) onInput(v);
+    });
+    input.addEventListener('change', () => {
+      this.sliding = false;
+      onDone(Number(input.value));
+    });
   }
 
   private setFrozen(frozen: boolean): void {
@@ -397,6 +592,15 @@ export class TagGraphView extends BasesView implements HoverParent {
           this.renderer.setFocus(focus === target ? null : target);
           this.renderLegend();
         });
+        // Hovering a row previews its notes on the graph; double-clicking zooms to them.
+        row.addEventListener('mouseenter', () => { if (!v.hidden) this.renderer.setPreview(target); });
+        row.addEventListener('mouseleave', () => this.renderer.setPreview(null));
+        row.addEventListener('dblclick', ev => {
+          if (v.hidden || (ev.target as HTMLElement).closest('.tag-graph-eye')) return;
+          this.renderer.setFocus(target);
+          this.renderer.zoomToId(target);
+          this.renderLegend();
+        });
       }
       if (visible.length > LEGEND_ROWS) {
         const more = sec.createDiv({ cls: 'tag-graph-legend-more', text: open ? t('ui.less') : t('ui.more', { n: visible.length - LEGEND_ROWS }) });
@@ -450,7 +654,7 @@ export class TagGraphView extends BasesView implements HoverParent {
   private toggleHidden(key: string): void {
     const h = this.hiddenSet();
     if (h.has(key)) h.delete(key); else h.add(key);
-    this.config.set('hidden', [...h]);
+    this.config.set('hidden', h.size ? [...h] : null);
     this.rebuild();
   }
 
@@ -465,7 +669,7 @@ export class TagGraphView extends BasesView implements HoverParent {
     if (g.id !== this.lastHoverId) {
       this.lastHoverId = g.id;
       this.lastHoverMod = false;
-      this.fillTip(g);
+      this.fillTip(g, ev.pointerType === 'mouse');
     }
     const mod = Keymap.isModEvent(ev) === true || ev.ctrlKey || ev.metaKey;
     if (g.type === 'note' && g.path && mod && !this.lastHoverMod) {
@@ -483,7 +687,7 @@ export class TagGraphView extends BasesView implements HoverParent {
     this.tipEl.addClass('is-visible');
   }
 
-  private fillTip(g: GNode): void {
+  private fillTip(g: GNode, mouse: boolean): void {
     const el = this.tipEl;
     el.empty();
     if (g.type === 'note') {
@@ -506,6 +710,10 @@ export class TagGraphView extends BasesView implements HoverParent {
       el.createDiv({ cls: 'tag-graph-tip-title', text: g.label });
       const where = g.type === 'subhub' ? ' · ' + (g.subFolder ? g.subFolder : '/') : '';
       el.createDiv({ cls: 'tag-graph-tip-sub', text: (f ? f.label : '') + where + ' · ' + t('ui.notes', { n: g.count }) });
+    }
+    // What a click does, for as long as the editing hint is shown. Touch has its own gestures.
+    if (mouse && this.plugin.settings.showHints) {
+      el.createDiv({ cls: 'tag-graph-tip-hint', text: g.type === 'note' ? t('tip.note') : t('tip.hub') });
     }
   }
 
@@ -654,6 +862,7 @@ export class TagGraphView extends BasesView implements HoverParent {
       menu.addItem(i => i.setTitle(this.renderer.frozen ? t('ui.unfreeze') : t('ui.freeze'))
         .setIcon(this.renderer.frozen ? 'play' : 'snowflake').onClick(() => this.setFrozen(!this.renderer.frozen)));
       menu.addItem(i => i.setTitle(t('ui.relayout')).setIcon('refresh-cw').onClick(() => this.renderer.relayout()));
+      menu.addItem(i => i.setTitle(t('ui.settings')).setIcon('settings').onClick(() => this.setPanel(true)));
       menu.showAtPosition({ x, y });
       return;
     }

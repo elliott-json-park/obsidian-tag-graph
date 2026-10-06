@@ -93,6 +93,8 @@ export interface GEdge {
   type: EdgeType;
   facet?: string;
   kind?: LinkKind;
+  /** link: the two notes link each other, so the edge points both ways. */
+  both?: boolean;
 }
 
 export interface LegendValue {
@@ -240,21 +242,25 @@ export function buildGraph(notes: NoteInput[], opts: BuildOptions): GraphModel {
 
   /* ---- links between notes ---- */
   const linkCounts: Record<LinkKind, number> = { body: 0, heading: 0, block: 0, property: 0, embed: 0 };
-  const linkSeen = new Set<string>();
+  const linkSeen = new Map<string, { from: string; edge: GEdge | null }>();
   for (const n of notes) {
     for (const l of n.links) {
       if (l.target === n.path || !paths.has(l.target)) continue;
       // One edge per pair and kind; a note that links another five times is
-      // still one relationship.
+      // still one relationship. A link back the other way makes it two-way.
       const a = n.path < l.target ? n.path : l.target;
       const b = n.path < l.target ? l.target : n.path;
       const k = a + '\u0000' + b + '\u0000' + l.kind;
-      if (linkSeen.has(k)) continue;
-      linkSeen.add(k);
+      const seen = linkSeen.get(k);
+      if (seen) { if (seen.edge && seen.from !== n.path) seen.edge.both = true; continue; }
       linkCounts[l.kind]++;
-      if (!opts.linkKinds.has(l.kind)) continue;
-      edges.push({ source: noteId(n.path), target: noteId(l.target), type: 'link', kind: l.kind });
-      bump(noteId(n.path)); bump(noteId(l.target));
+      let edge: GEdge | null = null;
+      if (opts.linkKinds.has(l.kind)) {
+        edge = { source: noteId(n.path), target: noteId(l.target), type: 'link', kind: l.kind };
+        edges.push(edge);
+        bump(noteId(n.path)); bump(noteId(l.target));
+      }
+      linkSeen.set(k, { from: n.path, edge });
     }
   }
 

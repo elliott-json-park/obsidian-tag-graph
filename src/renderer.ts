@@ -19,11 +19,16 @@ export interface SimNode extends SimulationNodeDatum {
   id: string;
   g: GNode;
   r: number;
+  /** Eased highlight state, 0..1: how far it is dimmed, and how far it is lit as a neighbour. */
+  dim: number;
+  lit: number;
 }
 interface SimEdge extends SimulationLinkDatum<SimNode> {
   e: GEdge;
   source: SimNode;
   target: SimNode;
+  dim: number;
+  lit: number;
 }
 
 export interface Theme {
@@ -53,9 +58,31 @@ export interface LayoutOptions {
   animate: boolean;
 }
 
+/** What the graph settings panel controls. Ranges and defaults follow Obsidian's own graph view. */
+export interface GraphSettings {
+  arrows: boolean;
+  /** -3..3: higher shows note names from further out. */
+  textFade: number;
+  nodeSize: number;
+  linkWidth: number;
+  centerForce: number;
+  repelForce: number;
+  linkForce: number;
+  linkDistance: number;
+}
+
+export const GRAPH_DEFAULTS: GraphSettings = {
+  arrows: false, textFade: 0, nodeSize: 1, linkWidth: 1,
+  centerForce: 0.5, repelForce: 10, linkForce: 1, linkDistance: 250,
+};
+
 const TAU = Math.PI * 2;
 const DRAG_PX = 4;
 const LONG_PRESS_MS = 550;
+/** Time constant of the highlight fade: quick, but eased rather than a jump. */
+const FADE_MS = 70;
+/** How far a dimmed node and a dimmed edge fade. */
+const DIM_NODE = 0.86, DIM_EDGE = 0.94;
 
 function hash(s: string): number {
   let h = 2166136261;
@@ -97,10 +124,15 @@ export class Renderer {
   insets = { left: 0, top: 0, right: 0, bottom: 0 };
   frozen = false;
   private animate = true;
+  private gs: GraphSettings = { ...GRAPH_DEFAULTS };
+  private aspect: [number, number] = [1, 1];
 
   private hovered: SimNode | null = null;
   private focusId: string | null = null;
+  /** A node highlighted from outside the canvas, e.g. while its legend row is hovered. */
+  private previewId: string | null = null;
   private matches: Set<string> | null = null;
+  private fadeAt = 0;
 
   private pointers = new Map<number, { x: number; y: number }>();
   private down: { id: number; x: number; y: number; node: SimNode | null; moved: boolean; button: number; mod: boolean } | null = null;
@@ -153,8 +185,9 @@ export class Renderer {
     if (sig === this.signature && this.nodes.length === model.nodes.length) {
       model.nodes.forEach((g, i) => {
         const n = this.byId.get(g.id) || this.nodes[i];
-        n.g = g; n.r = radiusOf(g);
+        n.g = g; n.r = this.radius(g);
       });
+      if (this.edges.length === model.edges.length) model.edges.forEach((e, i) => { this.edges[i].e = e; });
       this.dirty = true;
       this.loop();
       return;
@@ -162,7 +195,11 @@ export class Renderer {
     this.signature = sig;
     for (const n of this.nodes) if (n.x !== undefined && n.y !== undefined) this.known.set(n.id, { x: n.x, y: n.y });
 
-    const nodes: SimNode[] = model.nodes.map(g => ({ id: g.id, g, r: radiusOf(g) }));
+    // Nodes that stay keep their highlight state, so a redraw mid-fade does not flash.
+    const nodes: SimNode[] = model.nodes.map(g => {
+      const old = this.byId.get(g.id);
+      return { id: g.id, g, r: this.radius(g), dim: old ? old.dim : 0, lit: old ? old.lit : 0 };
+    });
     const byId = new Map(nodes.map(n => [n.id, n]));
     const edges: SimEdge[] = [];
     const adj = new Map<string, Set<string>>();
@@ -170,13 +207,14 @@ export class Renderer {
     for (const e of model.edges) {
       const s = byId.get(e.source), t = byId.get(e.target);
       if (!s || !t) continue;
-      edges.push({ e, source: s, target: t });
+      edges.push({ e, source: s, target: t, dim: Math.max(s.dim, t.dim), lit: 0 });
       adj.get(s.id)!.add(t.id);
       adj.get(t.id)!.add(s.id);
     }
     this.nodes = nodes; this.edges = edges; this.byId = byId; this.adj = adj;
     if (this.focusId && !byId.has(this.focusId)) { this.focusId = null; this.host.focusChanged(null); }
     if (this.hovered && !byId.has(this.hovered.id)) this.hovered = null;
+    if (this.previewId && !byId.has(this.previewId)) this.previewId = null;
 
     const fresh = this.place();
     this.buildSim(fresh);
@@ -215,34 +253,69 @@ export class Renderer {
     return fresh;
   }
 
-  private buildSim(fresh: number): void {
-    this.sim?.stop();
+  private radius(g: GNode): number {
+    return radiusOf(g) * this.gs.nodeSize;
+  }
+
+  /**
+   * Install the forces. The graph settings scale the tuned defaults rather
+   * than replace them, so the default settings give the picture people know.
+   */
+  private applyForces(): void {
+    const sim = this.sim;
+    if (!sim) return;
+    const gs = this.gs, d = GRAPH_DEFAULTS;
+    const dist = gs.linkDistance / d.linkDistance;
+    const pull = gs.linkForce / d.linkForce;
+    const repel = gs.repelForce / d.repelForce;
+    const center = gs.centerForce / d.centerForce;
+    const [aspectX, aspectY] = this.aspect;
     const deg = (n: SimNode) => this.adj.get(n.id)!.size || 1;
-    // The pane's shape shapes the layout; read it now, as the resize observer
-    // may not have reported yet and a guess would give a different picture.
-    const box = this.parent.getBoundingClientRect();
-    const bw = box.width || this.w, bh = box.height || this.h;
-    const ratio = bw > 1 && bh > 1 ? Math.max(0.5, Math.min(2.2, Math.round(bw / bh * 10) / 10)) : 1.4;
-    const aspectX = 1 / ratio, aspectY = ratio;
-    const sim = forceSimulation<SimNode, SimEdge>(this.nodes)
-      .randomSource(lcg(1234567))
+    sim
       .force('link', forceLink<SimNode, SimEdge>(this.edges)
-        .distance(l => l.e.type === 'member' ? l.target.r + 26 : l.e.type === 'split' ? l.target.r + l.source.r + 18 : 46)
+        .distance(l => l.e.type === 'member' ? l.target.r + 26 * dist : l.e.type === 'split' ? l.target.r + l.source.r + 18 * dist : 46 * dist)
         .strength(l => {
           const base = 1 / Math.min(deg(l.source), deg(l.target));
-          return l.e.type === 'link' ? base * 0.5 : l.e.type === 'split' ? 0.7 : base;
+          return pull * (l.e.type === 'link' ? base * 0.5 : l.e.type === 'split' ? 0.7 : base);
         }))
       .force('charge', forceManyBody<SimNode>()
-        .strength(n => n.g.type === 'hub' ? -220 - Math.min(400, n.g.count * 6) : n.g.type === 'subhub' ? -110 : -38)
+        .strength(n => repel * (n.g.type === 'hub' ? -220 - Math.min(400, n.g.count * 6) : n.g.type === 'subhub' ? -110 : -38))
         .distanceMax(900).theta(0.9))
       .force('collide', forceCollide<SimNode>(n => n.r + (n.g.type === 'note' ? 2 : 6)).iterations(1))
       // Pull towards the middle in proportion to the view's shape, so a wide
       // pane gets a wide graph. Notes with no connections are held closer, or
       // they drift to the edge and shrink everything else when fitting.
-      .force('x', forceX<SimNode>(0).strength(n => (this.adj.get(n.id)!.size ? 0.03 : 0.12) * aspectX))
-      .force('y', forceY<SimNode>(0).strength(n => (this.adj.get(n.id)!.size ? 0.03 : 0.12) * aspectY))
-      .stop();
+      .force('x', forceX<SimNode>(0).strength(n => center * (this.adj.get(n.id)!.size ? 0.03 : 0.12) * aspectX))
+      .force('y', forceY<SimNode>(0).strength(n => center * (this.adj.get(n.id)!.size ? 0.03 : 0.12) * aspectY));
+  }
+
+  /** Change the graph settings. Forces and node size nudge the layout; the rest only redraws. */
+  setSettings(next: GraphSettings): void {
+    const prev = this.gs;
+    this.gs = { ...next };
+    const sized = prev.nodeSize !== next.nodeSize;
+    if (sized) for (const n of this.nodes) n.r = this.radius(n.g);
+    const moved = sized || prev.centerForce !== next.centerForce || prev.repelForce !== next.repelForce ||
+      prev.linkForce !== next.linkForce || prev.linkDistance !== next.linkDistance;
+    if (moved && this.sim) {
+      this.applyForces();
+      if (!this.frozen) this.sim.alpha(Math.max(this.sim.alpha(), 0.3));
+    }
+    this.dirty = true;
+    this.loop();
+  }
+
+  private buildSim(fresh: number): void {
+    this.sim?.stop();
+    // The pane's shape shapes the layout; read it now, as the resize observer
+    // may not have reported yet and a guess would give a different picture.
+    const box = this.parent.getBoundingClientRect();
+    const bw = box.width || this.w, bh = box.height || this.h;
+    const ratio = bw > 1 && bh > 1 ? Math.max(0.5, Math.min(2.2, Math.round(bw / bh * 10) / 10)) : 1.4;
+    this.aspect = [1 / ratio, ratio];
+    const sim = forceSimulation<SimNode, SimEdge>(this.nodes).randomSource(lcg(1234567)).stop();
     this.sim = sim;
+    this.applyForces();
 
     // A small edit should nudge, not rebuild the picture.
     const total = this.nodes.length || 1;
@@ -310,10 +383,25 @@ export class Renderer {
     if (this.matches && this.matches.size) this.fitNow(this.matches, true);
   }
 
-  /** What the highlight radiates from: the node being carried, else the hovered one, else the focus. */
+  /** Highlight a node as if it were hovered, e.g. while its legend row is. */
+  setPreview(id: string | null): void {
+    const next = id && this.byId.has(id) ? id : null;
+    if (next === this.previewId) return;
+    this.previewId = next;
+    this.dirty = true;
+    this.loop();
+  }
+
+  /** Zoom to a node and its neighbours. */
+  zoomToId(id: string): void {
+    const n = this.byId.get(id);
+    if (n) this.zoomTo(n);
+  }
+
+  /** What the highlight radiates from: the node being carried, else the hovered one, a preview, the focus. */
   private centerId(): string | null {
     if (this.dragging) return this.dragging.id;
-    return this.hovered?.id || this.focusId;
+    return this.hovered?.id || this.previewId || this.focusId;
   }
 
   /**
@@ -340,6 +428,43 @@ export class Renderer {
       return { all, core };
     }
     return this.matches ? { all: this.matches, core: null } : null;
+  }
+
+  /** Under focus only the spokes from the centre are lit, not edges between its neighbours. */
+  private edgeOn(e: SimEdge, hl: Set<string>, core: Set<string> | null): boolean {
+    return hl.has(e.source.id) && hl.has(e.target.id) && (!core || core.has(e.source.id) || core.has(e.target.id));
+  }
+
+  /**
+   * Ease every node and edge towards what the highlight asks of it, the way
+   * Obsidian's graph does: quick, but a fade rather than a jump. Returns true
+   * while something is still on its way.
+   */
+  private stepFade(now: number): boolean {
+    const dt = this.fadeAt ? Math.min(100, now - this.fadeAt) : 16;
+    this.fadeAt = now;
+    const a = 1 - Math.exp(-dt / FADE_MS);
+    const h = this.highlight();
+    const hl = h ? h.all : null, core = h ? h.core : null;
+    let busy = false;
+    const ease = (cur: number, to: number): number => {
+      if (cur === to) return to;
+      const v = cur + (to - cur) * a;
+      if (Math.abs(to - v) < 0.01) return to;
+      busy = true;
+      return v;
+    };
+    for (const n of this.nodes) {
+      const on = !!hl && hl.has(n.id);
+      n.dim = ease(n.dim, hl && !on ? 1 : 0);
+      n.lit = ease(n.lit, on && core ? 1 : 0);
+    }
+    for (const e of this.edges) {
+      const on = !!hl && this.edgeOn(e, hl, core);
+      e.dim = ease(e.dim, hl && !on ? 1 : 0);
+      e.lit = ease(e.lit, on ? 1 : 0);
+    }
+    return busy;
   }
 
   /* ============================================================ view */
@@ -457,7 +582,11 @@ export class Renderer {
     c.addEventListener('dblclick', ev => {
       const [sx, sy] = this.local(ev);
       const n = this.hit(sx, sy);
-      if (n && n.g.type !== 'note') this.zoomTo(n);
+      if (!n || n.g.type === 'note') return;
+      // The two clicks before this toggled the highlight on and off; leave it on.
+      this.focusId = n.id;
+      this.host.focusChanged(n.id);
+      this.zoomTo(n);
     });
     c.addEventListener('keydown', ev => {
       if (ev.key === 'Escape') {
@@ -711,7 +840,13 @@ export class Renderer {
         if (p >= 1) this.viewAnim = null; else again = true;
         this.dirty = true;
       }
-      if (this.dirty) { this.dirty = false; this.draw(); }
+      if (this.dirty) {
+        if (this.stepFade(performance.now())) again = true;
+        else this.fadeAt = 0;
+        this.dirty = false;
+        this.draw();
+        if (again) this.dirty = true;
+      }
       if (again) this.loop();
     });
   }
@@ -727,33 +862,36 @@ export class Renderer {
 
     const h = this.highlight();
     const hl = h ? h.all : null;
-    const core = h ? h.core : null;
     const px = 1 / k;
-    // Under focus only the spokes from the centre are lit, not edges between its neighbours.
-    const lit = (e: SimEdge) => !hl || (hl.has(e.source.id) && hl.has(e.target.id) &&
-      (!core || core.has(e.source.id) || core.has(e.target.id)));
+    const lw = this.gs.linkWidth;
 
-    /* ---- edges, batched by style ---- */
-    const batches = new Map<string, { color: string; width: number; dash: number[]; alpha: number; segs: SimEdge[] }>();
-    const add = (key: string, color: string, width: number, dash: number[], alpha: number, e: SimEdge) => {
-      let b = batches.get(key);
-      if (!b) { b = { color, width, dash, alpha, segs: [] }; batches.set(key, b); }
-      b.segs.push(e);
-    };
+    /* ---- edges, batched by style; eased alphas are rounded so batches stay few ---- */
+    const batches = new Map<string, { color: string; width: number; dash: number[]; alpha: number; segs: SimEdge[]; arrows: SimEdge[] }>();
+    const q = (v: number) => Math.round(v * 40) / 40;
+    // Arrows only where direction means something: from a note to the note it links.
+    const arrowLen = 4 + 2 * Math.sqrt(lw);
+    const arrows = this.gs.arrows && arrowLen * k >= 3;
     for (const e of this.edges) {
-      const on = lit(e);
-      const dim = hl && !on;
-      const a = dim ? 0.06 : 1;
+      const keep = 1 - DIM_EDGE * e.dim, l = e.lit;
+      let key: string, color: string, width: number, alpha: number, dash: number[] = [];
       if (e.e.type === 'member') {
-        add('m' + e.e.facet + (dim ? 'd' : on && hl ? 'h' : ''), this.host.facetColor(e.e.facet!), (on && hl ? 1.6 : 1.1) * px, [], a * (on && hl ? 0.85 : 0.45), e);
+        key = 'm' + e.e.facet; color = this.host.facetColor(e.e.facet!);
+        width = 1.1 + 0.5 * l; alpha = (0.45 + 0.4 * l) * keep;
       } else if (e.e.type === 'split') {
-        add('s' + e.e.facet + (dim ? 'd' : ''), this.host.facetColor(e.e.facet!), 1.4 * px, [4 * px, 3 * px], a * 0.6, e);
+        key = 's' + e.e.facet; color = this.host.facetColor(e.e.facet!);
+        width = 1.4; alpha = 0.6 * keep; dash = [4 * px, 3 * px];
       } else {
         const kind = e.e.kind || 'body';
-        const color = kind === 'property' ? th.accent : th.muted;
-        const dash = kind === 'heading' ? [6 * px, 3 * px] : kind === 'block' ? [1.5 * px, 3 * px] : kind === 'embed' ? [10 * px, 3 * px, 2 * px, 3 * px] : [];
-        add('l' + kind + (dim ? 'd' : on && hl ? 'h' : ''), color, (on && hl ? 1.8 : 1) * px, dash, a * (on && hl ? 0.95 : 0.3), e);
+        key = 'l' + kind; color = kind === 'property' ? th.accent : th.muted;
+        dash = kind === 'heading' ? [6 * px, 3 * px] : kind === 'block' ? [1.5 * px, 3 * px] : kind === 'embed' ? [10 * px, 3 * px, 2 * px, 3 * px] : [];
+        width = 1 + 0.8 * l; alpha = (0.3 + 0.65 * l) * keep;
       }
+      alpha = q(alpha); width = q(width);
+      key += '|' + alpha + '|' + width;
+      let b = batches.get(key);
+      if (!b) { b = { color, width: width * lw * px, dash, alpha, segs: [], arrows: [] }; batches.set(key, b); }
+      b.segs.push(e);
+      if (arrows && e.source.g.type === 'note' && e.target.g.type === 'note') b.arrows.push(e);
     }
     ctx.lineCap = 'round';
     for (const b of batches.values()) {
@@ -764,6 +902,15 @@ export class Renderer {
       ctx.beginPath();
       for (const e of b.segs) { ctx.moveTo(e.source.x!, e.source.y!); ctx.lineTo(e.target.x!, e.target.y!); }
       ctx.stroke();
+      if (b.arrows.length) {
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        for (const e of b.arrows) {
+          this.arrowHead(e.source, e.target, arrowLen);
+          if (e.e.both) this.arrowHead(e.target, e.source, arrowLen);
+        }
+        ctx.fill();
+      }
     }
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
@@ -777,8 +924,7 @@ export class Renderer {
     if (this.dragging) { order.splice(order.indexOf(this.dragging), 1); order.push(this.dragging); }
     for (const n of order) {
       if (n.x === undefined || n.y === undefined) continue;
-      const dim = !!hl && !hl.has(n.id);
-      ctx.globalAlpha = dim ? 0.14 : 1;
+      ctx.globalAlpha = 1 - DIM_NODE * n.dim;
       if (n.g.type === 'note') this.drawNote(n, px);
       else this.drawHub(n, px);
       if (this.matches && this.matches.has(n.id)) {
@@ -805,6 +951,21 @@ export class Renderer {
     this.drawLabels(hl);
 
     if (this.dragging && this.verdict) this.drawBadge(this.verdict);
+  }
+
+  /** Add an arrowhead to the current path, its tip on the rim of `to`. */
+  private arrowHead(from: SimNode, to: SimNode, len: number): void {
+    const dx = to.x! - from.x!, dy = to.y! - from.y!;
+    const d = Math.hypot(dx, dy);
+    if (d < from.r + to.r + len) return;
+    const ux = dx / d, uy = dy / d;
+    const tx = to.x! - ux * (to.r + 1), ty = to.y! - uy * (to.r + 1);
+    const bx = tx - ux * len, by = ty - uy * len, w = len * 0.42;
+    const ctx = this.ctx;
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(bx - uy * w, by + ux * w);
+    ctx.lineTo(bx + uy * w, by - ux * w);
+    ctx.closePath();
   }
 
   private drawNote(n: SimNode, px: number): void {
@@ -878,29 +1039,37 @@ export class Renderer {
   private drawLabels(hl: Set<string> | null): void {
     const th = this.theme, k = this.k;
     const center = this.centerId();
-    type Item = { n: SimNode; text: string; font: string; color: string; rank: number };
+    type Item = { n: SimNode; text: string; font: string; color: string; rank: number; alpha: number };
     const items: Item[] = [];
-    const hubCap = k < 0.35 ? 24 : k < 0.7 ? 80 : Infinity;
+    // Text fade threshold: each step right shows names from further out.
+    const reach = Math.pow(2, this.gs.textFade * 0.6);
+    const kr = k * reach;
+    const hubCap = kr < 0.35 ? 24 : kr < 0.7 ? 80 : Infinity;
+    // Note names fade in over the half-octave of zoom below the threshold, instead of popping in.
+    const noteFade = Math.max(0, Math.min(1, Math.log2(kr / 1.15) / 0.5 + 1));
     let hubsSeen = 0;
     const hubs = this.nodes.filter(n => n.g.type !== 'note').sort((a, b) => b.g.count - a.g.count);
     for (const n of hubs) {
-      if (hl && !hl.has(n.id)) continue;
-      if (!hl && hubsSeen++ >= hubCap) continue;
+      const inHl = !!hl && hl.has(n.id);
+      if (!inHl && hubsSeen++ >= hubCap) continue;
+      const alpha = 1 - n.dim;
+      if (alpha < 0.03) continue;
       const text = n.g.type === 'subhub' ? n.g.label + ' · ' + folderLabel(n.g.subFolder || '') : n.g.label;
       const isHub = n.g.type === 'hub';
       items.push({ n, text, font: `${isHub ? 600 : 500} ${isHub ? 12 : 11}px ${th.font}`, color: isHub ? th.text : th.muted,
-        rank: n.id === center ? 0 : isHub ? 2 : 3 });
+        rank: n.id === center ? 0 : isHub ? 2 : 3, alpha });
     }
-    const showAllNotes = k >= 1.15;
     for (const n of this.nodes) {
       if (n.g.type !== 'note') continue;
       const special = this.hovered === n || this.focusId === n.id || this.dragging === n || (!!this.matches && this.matches.has(n.id));
-      const inHl = !!hl && hl.has(n.id) && !!center;
-      if (!(special || inHl || (showAllNotes && !hl))) continue;
+      const alpha = special ? 1 : Math.max(n.lit, noteFade * (1 - n.dim));
+      if (alpha < 0.03) continue;
       items.push({ n, text: n.g.label, font: `${special ? 600 : 400} 11px ${th.font}`, color: special ? th.text : th.muted,
-        rank: n.id === center || this.dragging === n ? 0 : special ? 1 : 4 });
+        rank: n.id === center || this.dragging === n ? 0 : special ? 1 : 4, alpha });
     }
-    items.sort((a, b) => a.rank - b.rank);
+    // Labels on their way out give way to the ones coming in.
+    const order = (it: Item) => it.rank + (it.alpha < 0.35 ? 10 : 0);
+    items.sort((a, b) => order(a) - order(b));
 
     const ctx = this.ctx;
     ctx.textAlign = 'center';
@@ -921,13 +1090,14 @@ export class Renderer {
       placed.push(box);
       ctx.strokeStyle = th.bg;
       ctx.lineWidth = 3;
-      ctx.globalAlpha = 0.9;
+      ctx.globalAlpha = 0.9 * it.alpha;
       ctx.strokeText(s, sx, sy);
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = it.alpha;
       ctx.fillStyle = it.color;
       ctx.fillText(s, sx, sy);
       drawn++;
     }
+    ctx.globalAlpha = 1;
   }
 
   private drawBadge(v: DropVerdict): void {

@@ -125,6 +125,10 @@ test('links are classified, deduplicated and filtered by kind', () => {
   assert.deepEqual(m.linkCounts, { body: 1, heading: 1, block: 1, property: 0, embed: 0 });
   assert.equal(m.edges.length, 1);
   assert.equal(m.edges[0].kind, 'body');
+  // a links b and b links a back: one edge, marked two-way.
+  assert.equal(m.edges[0].both, true);
+  const one = M.buildGraph([note('a.md', { links: [{ target: 'b.md', kind: 'body' }] }), note('b.md')], opts({ facets: [] }));
+  assert.equal(one.edges[0].both, undefined);
 });
 
 test('isolated notes can be left out', () => {
