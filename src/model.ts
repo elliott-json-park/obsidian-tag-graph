@@ -142,6 +142,20 @@ export function folderLabel(folder: string): string {
   return i < 0 ? folder : folder.slice(i + 1);
 }
 
+/**
+ * Where folder `from` ends up when dropped on folder `into` ('/' is the vault
+ * root), or why it cannot go there: the root never moves, a folder cannot go
+ * into itself or one of its subfolders, and dropping it on its own parent does nothing.
+ */
+export function folderMoveDest(from: string, into: string): { dest: string } | { reason: 'root' | 'inside' | 'same' } {
+  if (!from || from === '/') return { reason: 'root' };
+  if (into === from || into.startsWith(from + '/')) return { reason: 'inside' };
+  const name = folderLabel(from);
+  const dest = !into || into === '/' ? name : into + '/' + name;
+  if (dest === from) return { reason: 'same' };
+  return { dest };
+}
+
 export function buildGraph(notes: NoteInput[], opts: BuildOptions): GraphModel {
   const paths = new Set(notes.map(n => n.path));
   const nodes: GNode[] = [];

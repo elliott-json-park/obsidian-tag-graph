@@ -4,7 +4,7 @@
  * one can be undone — but only if nobody has changed those files since.
  */
 import { App, Notice, TFile, TFolder, normalizePath, parsePropertyId } from 'obsidian';
-import { FacetSpec, FacetValue, tagKey, tagLabel } from './model';
+import { FacetSpec, FacetValue, folderMoveDest, tagKey, tagLabel } from './model';
 import { fmAdd, fmAddTag, fmRemove, fmRemoveTag, fmReplace, fmReplaceTag, rewriteInlineTags, Matcher } from './frontmatter';
 import { Resolver, frontmatterKey } from './values';
 import { t } from './i18n';
@@ -176,6 +176,28 @@ export class Actions {
       t('notice.moved', { note: file.basename, folder: folder.isRoot() ? '/' : folder.path }));
   }
 
+  /** Move a folder, with everything in it, into another folder (a folder hub dropped on a folder hub). */
+  async moveFolder(fromPath: string, intoPath: string): Promise<void> {
+    const folder = this.app.vault.getAbstractFileByPath(fromPath);
+    const into = intoPath === '/' ? this.app.vault.getRoot() : this.app.vault.getAbstractFileByPath(intoPath);
+    if (!(folder instanceof TFolder) || !(into instanceof TFolder)) return;
+    const where = folderMoveDest(folder.path, into.isRoot() ? '/' : into.path);
+    if (!('dest' in where)) return;
+    const intoLabel = into.isRoot() ? '/' : into.path;
+    if (this.app.vault.getAbstractFileByPath(where.dest)) {
+      new Notice(t('notice.exists', { folder: intoLabel }));
+      return;
+    }
+    const from = folder.path;
+    try {
+      await this.app.fileManager.renameFile(folder, where.dest);
+    } catch (e) {
+      new Notice(t('notice.failed', { note: folder.name, error: e instanceof Error ? e.message : String(e) }));
+      return;
+    }
+    this.remember({ files: [], moves: [{ from, to: where.dest }] }, t('notice.moved', { note: folder.name, folder: intoLabel }));
+  }
+
   /** Add a link to `target` in the given property of `file` (a note dropped on a note). */
   async link(file: TFile, target: TFile, property: string): Promise<void> {
     const written = '[[' + this.app.metadataCache.fileToLinktext(target, file.path, true) + ']]';
@@ -200,7 +222,7 @@ export class Actions {
       const f = this.app.vault.getAbstractFileByPath(s.path);
       if (!(f instanceof TFile) || (await this.app.vault.read(f)) !== s.after) stale++;
     }
-    for (const m of op.moves) if (!(this.app.vault.getAbstractFileByPath(m.to) instanceof TFile)) stale++;
+    for (const m of op.moves) if (!this.app.vault.getAbstractFileByPath(m.to)) stale++;
     if (stale > 0) { new Notice(t('notice.cannotUndo', { n: stale })); return; }
     for (const s of op.files) {
       const f = this.app.vault.getAbstractFileByPath(s.path);
@@ -208,7 +230,7 @@ export class Actions {
     }
     for (const m of op.moves.slice().reverse()) {
       const f = this.app.vault.getAbstractFileByPath(m.to);
-      if (f instanceof TFile && !this.app.vault.getAbstractFileByPath(m.from)) await this.app.fileManager.renameFile(f, m.from);
+      if (f && !this.app.vault.getAbstractFileByPath(m.from)) await this.app.fileManager.renameFile(f, m.from);
     }
     new Notice(t('notice.undone'));
   }

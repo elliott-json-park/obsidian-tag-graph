@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0
+
+- **Move folders by dragging**: with the new setting on (it is off by default),
+  drop a folder hub on another folder hub to move the folder, with everything in
+  it, into the other one. It asks first when *Confirm before moving files* is on,
+  and Undo puts the folder back. A folder cannot be dropped into itself or one of
+  its subfolders.
+
 ## 1.1.0
 
 - **Graph settings**: a gear button opens the controls of Obsidian's graph

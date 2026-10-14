@@ -47,6 +47,7 @@ The graph is a way to change your notes, not only to look at them.
 | a note | a note that is a value (e.g. a project note) | sets that property to a link to it |
 | a note | another note | adds a link to the other note in a property you choose (`related` by default) |
 | a tag | another tag | **merges** them: every note in the base gets the second tag instead of the first |
+| a folder | another folder | moves the folder, with everything in it, into the other one (turn on *Move folders by dragging* first) |
 
 Right-click a tag or value to **rename** it across the notes in the base — in
 the `tags` property and in `#tags` written in the note text — or to **create a
@@ -136,7 +137,11 @@ The ↻ button puts every control back to its default.
 
 - **Confirm before changing many notes** (on) — before a merge that touches more
   than one note.
-- **Confirm before moving files** (on) — before a drop on a folder moves a note.
+- **Confirm before moving files** (on) — before a drop on a folder moves a note
+  or a folder.
+- **Move folders by dragging** (off) — drop a folder on another folder to move
+  it there. Everything inside moves too, including notes outside the base. Off by
+  default so a folder is not moved by accident.
 - **Change tags in the note text too** (on) — renames, merges and removals also
   change `#tags` in the body, not only the `tags` property. Only the exact tag is
   changed: `#todo/sub` is a different tag from `#todo`.

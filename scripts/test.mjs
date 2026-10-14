@@ -159,6 +159,19 @@ test('helpers', () => {
   assert.equal(M.folderLabel(''), '/');
 });
 
+test('folderMoveDest: a folder dropped on a folder goes inside it, never into itself', () => {
+  assert.deepEqual(M.folderMoveDest('Inbox/Books', 'Library'), { dest: 'Library/Books' });
+  assert.deepEqual(M.folderMoveDest('Inbox/Books', '/'), { dest: 'Books' });
+  assert.deepEqual(M.folderMoveDest('Books', 'Library/2026'), { dest: 'Library/2026/Books' });
+  assert.deepEqual(M.folderMoveDest('Books', 'Books'), { reason: 'inside' });
+  assert.deepEqual(M.folderMoveDest('Books', 'Books/Old'), { reason: 'inside' });
+  // A sibling whose name only starts the same is not inside.
+  assert.deepEqual(M.folderMoveDest('Books', 'Books2'), { dest: 'Books2/Books' });
+  assert.deepEqual(M.folderMoveDest('Library/Books', 'Library'), { reason: 'same' });
+  assert.deepEqual(M.folderMoveDest('Books', '/'), { reason: 'same' });
+  assert.deepEqual(M.folderMoveDest('/', 'Library'), { reason: 'root' });
+});
+
 /* ---------------------------------------------------------------- frontmatter */
 
 console.log('frontmatter');

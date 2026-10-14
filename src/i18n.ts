@@ -72,6 +72,7 @@ const en = {
   'drop.link': 'Link from {prop}',
   'drop.already': 'Already has {value}',
   'drop.cannot': 'Values of different properties cannot be merged',
+  'drop.folderInside': 'A folder cannot go inside itself',
 
   'menu.open': 'Open',
   'menu.openTab': 'Open in new tab',
@@ -92,6 +93,7 @@ const en = {
   'modal.merge.desc': '{n} notes will have {from} replaced by {to}. Notes outside this base are not touched.',
   'modal.move.title': 'Move {note} to {folder}?',
   'modal.move.desc': 'The file moves and links to it are updated as your settings say.',
+  'modal.moveFolder.desc': 'The folder moves with everything in it, including notes outside this base. Links are updated as your settings say.',
 
   'notice.added': 'Added {value} to {note}',
   'notice.set': 'Set {facet} of {note} to {value}',
@@ -116,6 +118,8 @@ const en = {
   'set.confirmBulk.desc': 'Ask before a merge or rename that changes more than one note.',
   'set.confirmMoves': 'Confirm before moving files',
   'set.confirmMoves.desc': 'Ask before a note dropped on a folder is moved there.',
+  'set.moveFolders': 'Move folders by dragging',
+  'set.moveFolders.desc': 'Drop a folder on another folder to move it there, with everything in it. Off by default so a folder is not moved by accident.',
   'set.inlineTags': 'Change tags in the note text too',
   'set.inlineTags.desc': 'When a tag is renamed, merged or removed, also change the #tags written in the body, not only the tags property.',
   'set.motion': 'Animate the layout',
@@ -198,6 +202,7 @@ const ko: Partial<Record<Key, string>> = {
   'drop.link': '{prop}에 링크 추가',
   'drop.already': '이미 {value} 있음',
   'drop.cannot': '다른 속성의 값끼리는 합칠 수 없어요',
+  'drop.folderInside': '폴더를 자기 안으로 옮길 수는 없어요',
 
   'menu.open': '열기',
   'menu.openTab': '새 탭에서 열기',
@@ -218,6 +223,7 @@ const ko: Partial<Record<Key, string>> = {
   'modal.merge.desc': '노트 {n}개에서 {from}이(가) {to}(으)로 바뀌어요. 이 base 밖의 노트는 건드리지 않아요.',
   'modal.move.title': '{note}을(를) {folder}(으)로 옮길까요?',
   'modal.move.desc': '파일이 옮겨지고, 링크는 설정에 따라 갱신돼요.',
+  'modal.moveFolder.desc': '폴더 안의 모든 것이 함께 옮겨져요. 이 base 밖의 노트도 포함돼요. 링크는 설정에 따라 갱신돼요.',
 
   'notice.added': '{note}에 {value} 추가',
   'notice.set': '{note}의 {facet}을(를) {value}(으)로',
@@ -242,6 +248,8 @@ const ko: Partial<Record<Key, string>> = {
   'set.confirmBulk.desc': '노트 두 개 이상을 바꾸는 합치기·이름 바꾸기 전에 물어봐요.',
   'set.confirmMoves': '파일을 옮기기 전에 확인',
   'set.confirmMoves.desc': '폴더 위에 놓은 노트를 옮기기 전에 물어봐요.',
+  'set.moveFolders': '끌어서 폴더 옮기기',
+  'set.moveFolders.desc': '폴더를 다른 폴더 위에 놓으면 안의 것까지 통째로 옮겨요. 실수로 옮기지 않도록 기본은 꺼져 있어요.',
   'set.inlineTags': '본문의 태그도 함께 바꾸기',
   'set.inlineTags.desc': '태그를 바꾸거나 합치거나 뺄 때 tags 속성뿐 아니라 본문에 쓴 #태그도 바꿔요.',
   'set.motion': '배치 움직임 보이기',

@@ -5,7 +5,7 @@ import {
 import type TagGraphPlugin from './main';
 import {
   FacetSpec, FacetValue, GNode, GraphModel, LINK_KINDS, LinkKind, NoteInput,
-  buildGraph, hubKey, hubId, noteId, paletteColor, tagLabel, tagKey,
+  buildGraph, folderMoveDest, hubKey, hubId, noteId, paletteColor, tagLabel, tagKey,
 } from './model';
 import { Renderer, DropVerdict, GRAPH_DEFAULTS, GraphSettings } from './renderer';
 import { Resolver, facetSpec } from './values';
@@ -788,7 +788,14 @@ export class TagGraphView extends BasesView implements HoverParent {
       const to = this.valueOfHub(b);
       if (!f || !to) return null;
       if (f.kind === 'readonly') return { text: t('ui.readonly', { facet: f.label }), ok: false };
-      if (f.kind === 'folder') return null;
+      if (f.kind === 'folder') {
+        if (!this.plugin.settings.moveFolders || a.type !== 'hub' || b.type !== 'hub') return null;
+        const where = folderMoveDest(a.valueKey!, to.key);
+        if ('dest' in where) return { text: t('drop.move', { value: to.label }), ok: true };
+        if (where.reason === 'same') return { text: t('drop.already', { value: to.label }), ok: false };
+        if (where.reason === 'inside') return { text: t('drop.folderInside'), ok: false };
+        return null;
+      }
       return { text: t('drop.merge', { value: to.label }), ok: true };
     }
     return null;
@@ -829,6 +836,13 @@ export class TagGraphView extends BasesView implements HoverParent {
       const f = this.spec(a.facet);
       const from = this.valueOfHub(a), to = this.valueOfHub(b);
       if (!f || !from || !to) return;
+      if (f.kind === 'folder') {
+        if (!this.plugin.settings.moveFolders || !('dest' in folderMoveDest(from.key, to.key))) return;
+        if (this.plugin.settings.confirmMoves &&
+          !(await confirm(this.plugin, t('modal.move.title', { note: from.label, folder: to.label }), t('modal.moveFolder.desc')))) return;
+        await actions.moveFolder(from.key, to.key);
+        return;
+      }
       await this.replaceValue(f, from, to, true);
     }
   }

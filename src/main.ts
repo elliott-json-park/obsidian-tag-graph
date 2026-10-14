@@ -6,6 +6,7 @@ import { initI18n, t } from './i18n';
 export interface TagGraphSettings {
   confirmBulk: boolean;
   confirmMoves: boolean;
+  moveFolders: boolean;
   inlineTags: boolean;
   animate: boolean;
   showHints: boolean;
@@ -14,6 +15,7 @@ export interface TagGraphSettings {
 const DEFAULTS: TagGraphSettings = {
   confirmBulk: true,
   confirmMoves: true,
+  moveFolders: false,
   inlineTags: true,
   animate: true,
   showHints: true,
@@ -92,6 +94,7 @@ function toggles(): { key: ToggleKey; name: string; desc: string }[] {
   return [
     { key: 'confirmBulk', name: t('set.confirmBulk'), desc: t('set.confirmBulk.desc') },
     { key: 'confirmMoves', name: t('set.confirmMoves'), desc: t('set.confirmMoves.desc') },
+    { key: 'moveFolders', name: t('set.moveFolders'), desc: t('set.moveFolders.desc') },
     { key: 'inlineTags', name: t('set.inlineTags'), desc: t('set.inlineTags.desc') },
     { key: 'animate', name: t('set.motion'), desc: t('set.motion.desc') },
     { key: 'showHints', name: t('set.hints'), desc: t('set.hints.desc') },
