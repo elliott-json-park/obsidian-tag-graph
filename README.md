@@ -171,6 +171,13 @@ The interface is in English and Korean, following Obsidian's language.
 - Built for bases of up to a few thousand notes. On 3,000 notes the first layout
   takes about a quarter of a second.
 
+## More from the same author
+
+- **[Vault Orrery](https://community.obsidian.md/plugins/vault-orrery)**: your vault as a 3D galaxy, where every folder is a solar system. Replay how it grew, note by note.
+- **[Vault Pet](https://community.obsidian.md/plugins/vault-pet)**: a pixel cat that lives at the bottom of your workspace and levels up as you write.
+- **[Class Timetable](https://community.obsidian.md/plugins/class-timetable)**: a weekly class timetable for students, with each class's lecture notes one click away. Desktop and mobile.
+- **[Download Pulse](https://community.obsidian.md/plugins/plugin-pulse)**: download stats for plugin authors: every plugin's downloads, rank and milestones in one dashboard.
+
 ## Feedback
 
 Found a bug, or a request this should answer? Open an
