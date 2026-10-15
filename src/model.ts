@@ -9,6 +9,8 @@
  *          A note is joined to every hub whose value it has, so notes that share
  *          values are pulled together even when they never link to each other.
  * plus, with "split by folder" on, a sub-hub per folder a value is used in.
+ * With "folder tree" on, each folder hub is also joined to its parent folder's
+ * hub (drawn even when no note sits in it directly), so folders read as trees.
  */
 
 export type LinkKind = 'body' | 'heading' | 'block' | 'property' | 'embed';
@@ -62,6 +64,10 @@ export interface BuildOptions {
   hidden: ReadonlySet<string>;
   /** Draw notes that end up with no hub and no link. */
   showIsolated: boolean;
+  /** Join each folder hub to its parent folder's hub. */
+  folderTree?: boolean;
+  /** Label folder hubs with the folder's own name rather than its whole path. */
+  folderNames?: boolean;
 }
 
 export type NodeType = 'note' | 'hub' | 'subhub';
@@ -79,13 +85,15 @@ export interface GNode {
   /** subhub: the folder it stands for, and its parent hub. */
   subFolder?: string;
   parent?: string;
+  /** hub: a folder drawn only because a folder below it is (no note sits in it directly). */
+  structural?: boolean;
   /** hub/subhub: notes with the value. note: number of hubs + links. */
   count: number;
   /** note: colour keys. */
   colors: string[];
 }
 
-export type EdgeType = 'member' | 'link' | 'split';
+export type EdgeType = 'member' | 'link' | 'split' | 'tree';
 
 export interface GEdge {
   source: string;
@@ -140,6 +148,13 @@ export function folderLabel(folder: string): string {
   if (!folder || folder === '/') return '/';
   const i = folder.lastIndexOf('/');
   return i < 0 ? folder : folder.slice(i + 1);
+}
+
+/** The folder a folder sits in, or null for a top-level folder (and the root). */
+export function parentFolder(folder: string): string | null {
+  if (!folder || folder === '/') return null;
+  const i = folder.lastIndexOf('/');
+  return i < 0 ? null : folder.slice(0, i);
 }
 
 /**
@@ -224,7 +239,8 @@ export function buildGraph(notes: NoteInput[], opts: BuildOptions): GraphModel {
         continue;
       }
       const hid = hubId(f.id, lv.valueKey);
-      nodes.push({ id: hid, type: 'hub', label: b.label, facet: f.id, valueKey: lv.valueKey, count: b.notes.length, colors: [] });
+      const label = f.kind === 'folder' && opts.folderNames && lv.valueKey !== '/' ? folderLabel(lv.valueKey) : b.label;
+      nodes.push({ id: hid, type: 'hub', label, facet: f.id, valueKey: lv.valueKey, count: b.notes.length, colors: [] });
       const byFolder = new Map<string, NoteInput[]>();
       if (opts.splitByFolder && f.kind !== 'folder') {
         for (const n of b.notes) {
@@ -250,6 +266,43 @@ export function buildGraph(notes: NoteInput[], opts: BuildOptions): GraphModel {
           edges.push({ source: noteId(n.path), target: hid, type: 'member', facet: f.id });
           bump(noteId(n.path));
         }
+      }
+    }
+  }
+
+  /* ---- folder trees: each folder hub joined to its parent's ---- */
+  if (opts.folderTree) {
+    for (const lf of legend) {
+      if (lf.hidden || lf.facet.kind !== 'folder') continue;
+      const f = lf.facet;
+      const drawn = new Set(nodes.filter(n => n.type === 'hub' && n.facet === f.id).map(n => n.valueKey!));
+      const queue = [...drawn];
+      const joined = new Set<string>();
+      while (queue.length) {
+        const child = queue.pop()!;
+        if (joined.has(child)) continue;
+        joined.add(child);
+        // A hidden folder is skipped over: its child joins the next folder up.
+        let parent = parentFolder(child);
+        while (parent !== null && opts.hidden.has(hubKey(f.id, parent))) parent = parentFolder(parent);
+        if (parent === null) continue;
+        if (!drawn.has(parent)) {
+          // Not drawn yet: empty but for subfolders, or below the minimum. Either
+          // way it is drawn now, with whatever notes sit in it joined as usual.
+          drawn.add(parent);
+          const pid = hubId(f.id, parent);
+          const b = buckets.get(f.id)!.get(parent);
+          nodes.push({
+            id: pid, type: 'hub', label: opts.folderNames ? folderLabel(parent) : b ? b.label : parent,
+            facet: f.id, valueKey: parent, count: b ? b.notes.length : 0, colors: [], structural: !b,
+          });
+          for (const n of b ? b.notes : []) {
+            edges.push({ source: noteId(n.path), target: pid, type: 'member', facet: f.id });
+            bump(noteId(n.path));
+          }
+          queue.push(parent);
+        }
+        edges.push({ source: hubId(f.id, child), target: hubId(f.id, parent), type: 'tree', facet: f.id });
       }
     }
   }
@@ -328,6 +381,11 @@ export function rawValues(v: unknown): string[] {
   if (typeof v === 'string') { const s = v.trim(); return s ? [s] : []; }
   if (typeof v === 'number' || typeof v === 'boolean') return [String(v)];
   return [];
+}
+
+/** A name Obsidian accepts for a note or folder: none of the characters it refuses, and not "." or "..". */
+export function validFileName(name: string): boolean {
+  return !/[\\/:*?"<>|#^[\]]/.test(name) && name !== '.' && name !== '..';
 }
 
 /* ------------------------------------------------------------------ palette */

@@ -51,8 +51,11 @@ The graph is a way to change your notes, not only to look at them.
 
 Right-click a tag or value to **rename** it across the notes in the base — in
 the `tags` property and in `#tags` written in the note text — or to **create a
-new note** that already has it. Right-click a note to **remove** one of its tags
-or values.
+new note** that already has it, or **remove it from all notes**. Right-click a
+note to **remove** one of its tags or values, move it to the vault root,
+**rename** it or **delete** it. Right-click a folder to create a note in it,
+rename it or delete it, and empty space for a new note. Deleting always asks
+first and goes to the trash your *Deleted files* setting chooses.
 
 Every edit shows a notice with **Undo**, and *Undo last edit* is a command too.
 Undo only goes ahead if the files are still exactly as the edit left them.
@@ -156,6 +159,8 @@ It follows your theme, light or dark:
 | Property 1–4 | Tags, none, none, none | Note properties, formulas, `file.tags`, `file.folder`, `file.ext` |
 | Hide values used by fewer notes than | 2 | A value that is itself a note in the graph is always drawn |
 | Split values by folder | off | |
+| Link folders to their parent folder | off | Draws folders as trees; a parent with no notes of its own is drawn too |
+| Show folder names, not paths | off | |
 | Colour notes by | grouping, else top-level folder | |
 | Show notes with no connections | on | |
 | Note dropped on note links it in | `related` | Leave empty to switch off |

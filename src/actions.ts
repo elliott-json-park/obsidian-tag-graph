@@ -119,18 +119,56 @@ export class Actions {
 
   /** Take a value off one note. */
   async remove(file: TFile, facet: FacetSpec, valueKey: string, label: string): Promise<void> {
-    const same = this.matcher(facet, valueKey, file.path);
-    const snaps = await this.edit([file], async f => {
-      const body = facet.kind === 'tags' ? await this.editBodyTags(f, same, null) : false;
-      let changed = false;
-      await this.app.fileManager.processFrontMatter(f, (fm: FM) => {
-        if (facet.kind === 'tags') { changed = fmRemoveTag(fm, same); return; }
-        const key = frontmatterKey(fm, parsePropertyId(facet.id as `note.${string}`).name);
-        changed = fmRemove(fm, key, same);
-      });
-      return changed || body;
-    });
+    const snaps = await this.edit([file], f => this.strip(f, facet, valueKey));
     this.remember({ files: snaps, moves: [] }, t('notice.removed', { value: label, note: file.basename }));
+  }
+
+  /** Take a value off every given note (a hub's "Remove from all notes"). */
+  async removeAll(files: TFile[], facet: FacetSpec, valueKey: string, label: string): Promise<void> {
+    const snaps = await this.edit(files, f => this.strip(f, facet, valueKey));
+    this.remember({ files: snaps, moves: [] }, t('notice.removedAll', { value: label, n: snaps.length }));
+  }
+
+  private async strip(f: TFile, facet: FacetSpec, valueKey: string): Promise<boolean> {
+    const same = this.matcher(facet, valueKey, f.path);
+    const body = facet.kind === 'tags' ? await this.editBodyTags(f, same, null) : false;
+    let changed = false;
+    await this.app.fileManager.processFrontMatter(f, (fm: FM) => {
+      if (facet.kind === 'tags') { changed = fmRemoveTag(fm, same); return; }
+      const key = frontmatterKey(fm, parsePropertyId(facet.id as `note.${string}`).name);
+      changed = fmRemove(fm, key, same);
+    });
+    return changed || body;
+  }
+
+  /** Give a note or a folder a new name where it is. A note keeps its extension. */
+  async renameItem(item: TFile | TFolder, name: string): Promise<void> {
+    const parent = item.parent && !item.parent.isRoot() ? item.parent.path + '/' : '';
+    const dest = normalizePath(parent + name + (item instanceof TFile ? '.' + item.extension : ''));
+    if (dest === item.path) return;
+    // A case-only rename is the same path on case-insensitive disks, so only a different file counts as taken.
+    const there = this.app.vault.getAbstractFileByPath(dest);
+    if (there && there !== item) { new Notice(t('notice.nameTaken', { name })); return; }
+    const from = item.path, fromName = item instanceof TFile ? item.basename : item.name;
+    try {
+      await this.app.fileManager.renameFile(item, dest);
+    } catch (e) {
+      new Notice(t('notice.failed', { note: fromName, error: e instanceof Error ? e.message : String(e) }));
+      return;
+    }
+    this.remember({ files: [], moves: [{ from, to: dest }] }, t('notice.renamedFile', { from: fromName, to: name }));
+  }
+
+  /** Send a note or a folder to the trash the user's settings choose. Not undoable here. */
+  async trash(item: TFile | TFolder): Promise<void> {
+    const name = item instanceof TFile ? item.basename : item.name;
+    try {
+      await this.app.fileManager.trashFile(item);
+    } catch (e) {
+      new Notice(t('notice.failed', { note: name, error: e instanceof Error ? e.message : String(e) }));
+      return;
+    }
+    new Notice(t('notice.deleted', { name }));
   }
 
   /**

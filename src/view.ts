@@ -1,11 +1,11 @@
 import {
   BasesAllOptions, BasesPropertyId, BasesView, HoverParent, HoverPopover, Keymap, Menu, Modal,
-  Platform, QueryController, Setting, TFile, ToggleComponent, parsePropertyId, setIcon,
+  Notice, Platform, QueryController, Setting, TFile, TFolder, ToggleComponent, Vault, normalizePath, parsePropertyId, setIcon,
 } from 'obsidian';
 import type TagGraphPlugin from './main';
 import {
   FacetSpec, FacetValue, GNode, GraphModel, LINK_KINDS, LegendFacet, LinkKind, NoteInput,
-  buildGraph, folderMoveDest, hubKey, hubId, noteId, paletteColor, tagLabel, tagKey,
+  buildGraph, folderMoveDest, hubKey, validFileName, hubId, noteId, paletteColor, tagLabel, tagKey,
 } from './model';
 import { Renderer, DropVerdict, GRAPH_DEFAULTS, GraphSettings } from './renderer';
 import { Resolver, facetSpec } from './values';
@@ -54,6 +54,8 @@ export function viewOptions(): BasesAllOptions[] {
     },
     { type: 'slider', key: 'minCount', displayName: t('opt.minCount'), default: 2, min: 1, max: 20, step: 1 },
     { type: 'toggle', key: 'splitByFolder', displayName: t('opt.split'), default: false },
+    { type: 'toggle', key: 'folderTree', displayName: t('opt.folderTree'), default: false },
+    { type: 'toggle', key: 'folderNames', displayName: t('opt.folderNames'), default: false },
     { type: 'property', key: 'colorBy', displayName: t('opt.colorBy'), placeholder: t('opt.colorBy.placeholder'), filter: facetPropertyFilter },
     { type: 'toggle', key: 'showIsolated', displayName: t('opt.isolated'), default: true },
     { type: 'text', key: 'linkProperty', displayName: t('opt.linkProp'), default: 'related', placeholder: 'related' },
@@ -322,8 +324,16 @@ export class TagGraphView extends BasesView implements HoverParent {
       linkKinds: this.linkKinds(),
       hidden: this.hiddenSet(),
       showIsolated: this.bool('showIsolated', true),
+      folderTree: this.bool('folderTree', false),
+      folderNames: this.bool('folderNames', false),
     });
     this.model = model;
+    // A folder drawn only for the tree has no note of its own to have read its value from.
+    for (const n of model.nodes) {
+      if (n.type === 'hub' && n.facet && n.valueKey !== undefined && !this.values.has(hubKey(n.facet, n.valueKey))) {
+        this.values.set(hubKey(n.facet, n.valueKey), { key: n.valueKey, label: n.valueKey });
+      }
+    }
     this.colorIndex.clear();
     model.colorKeys.forEach((c, i) => this.colorIndex.set(c.key, i));
     this.linkStats.clear();
@@ -1494,7 +1504,10 @@ export class TagGraphView extends BasesView implements HoverParent {
 
   private contextMenu(g: GNode | null, x: number, y: number): void {
     const menu = new Menu();
+    const actions = this.plugin.actions;
     if (!g) {
+      menu.addItem(i => i.setTitle(t('menu.newNoteHere')).setIcon('file-plus').onClick(() => { void this.createFileForView(); }));
+      menu.addSeparator();
       menu.addItem(i => i.setTitle(t('ui.fit')).setIcon('maximize').onClick(() => this.renderer.fit()));
       menu.addItem(i => i.setTitle(this.renderer.frozen ? t('ui.unfreeze') : t('ui.freeze'))
         .setIcon(this.renderer.frozen ? 'play' : 'snowflake').onClick(() => this.setFrozen(!this.renderer.frozen)));
@@ -1511,13 +1524,24 @@ export class TagGraphView extends BasesView implements HoverParent {
       menu.addItem(i => i.setSection('open').setTitle(t('ui.details')).setIcon('info').onClick(() => this.focusNode(g.id, false)));
       const meta = this.notes.get(file.path);
       for (const f of this.facets) {
-        if (f.kind === 'readonly' || f.kind === 'folder') continue;
+        if (f.kind === 'readonly') continue;
+        if (f.kind === 'folder') {
+          // A note's folder edge comes off by moving it to the root, which no folder hub but the root's claims.
+          if (file.parent && !file.parent.isRoot()) {
+            menu.addItem(i => i.setSection('action-primary').setTitle(t('menu.toRoot')).setIcon('corner-left-up')
+              .onClick(() => { void actions.move(file, '/'); }));
+          }
+          continue;
+        }
         for (const v of meta?.values[f.id] || []) {
           const label = f.kind === 'tags' ? v.label : f.label + ': ' + v.label;
           menu.addItem(i => i.setSection('action-primary').setTitle(t('menu.remove', { value: label })).setIcon('x')
-            .onClick(() => { void this.plugin.actions.remove(file, f, v.key, label); }));
+            .onClick(() => { void actions.remove(file, f, v.key, label); }));
         }
       }
+      menu.addItem(i => i.setSection('action').setTitle(t('menu.renameNote')).setIcon('pencil').onClick(() => this.renameItem(file)));
+      menu.addItem(i => i.setSection('danger').setTitle(t('menu.deleteNote')).setIcon('trash-2').setWarning(true)
+        .onClick(() => { void this.deleteItem(file); }));
       this.plugin.app.workspace.trigger('file-menu', menu, file, 'tag-graph');
       menu.showAtPosition({ x, y });
       return;
@@ -1526,23 +1550,92 @@ export class TagGraphView extends BasesView implements HoverParent {
     const v = this.valueOfHub(g);
     if (!f || !v) return;
     const focused = this.renderer.focus === g.id;
-    menu.addItem(i => i.setTitle(focused ? t('menu.unfocus') : t('menu.focus')).setIcon('focus')
+    menu.addItem(i => i.setSection('open').setTitle(focused ? t('menu.unfocus') : t('menu.focus')).setIcon('focus')
       .onClick(() => {
         if (focused) { this.renderer.setFocus(null); this.renderLegend(); this.renderInfo(); } else this.focusNode(g.id, false);
       }));
-    if (f.kind !== 'readonly' && f.kind !== 'folder') {
-      menu.addItem(i => i.setTitle(t('menu.rename')).setIcon('pencil').onClick(() => this.rename(f, v)));
-      menu.addItem(i => i.setTitle(t('menu.newNote')).setIcon('file-plus').onClick(() => { void this.newNoteWith(f, v); }));
+    const folder = f.kind === 'folder' ? this.folderOf(v.key) : null;
+    if (folder) {
+      menu.addItem(i => i.setSection('action').setTitle(t('menu.newNoteIn')).setIcon('file-plus').onClick(() => { void this.newNoteIn(folder); }));
+      if (!folder.isRoot()) menu.addItem(i => i.setSection('action').setTitle(t('menu.renameFolder')).setIcon('pencil').onClick(() => this.renameItem(folder)));
     }
-    menu.addItem(i => i.setTitle(t('menu.hide')).setIcon('eye-off').onClick(() => this.toggleHidden(hubKey(f.id, v.key))));
+    if (f.kind !== 'readonly' && f.kind !== 'folder') {
+      menu.addItem(i => i.setSection('action').setTitle(t('menu.rename')).setIcon('pencil').onClick(() => this.rename(f, v)));
+      menu.addItem(i => i.setSection('action').setTitle(t('menu.newNote')).setIcon('file-plus').onClick(() => { void this.newNoteWith(f, v); }));
+    }
+    // A folder drawn only for the tree is not in the legend, so once hidden it could not be shown again.
+    if (!g.structural) menu.addItem(i => i.setSection('view').setTitle(t('menu.hide')).setIcon('eye-off').onClick(() => this.toggleHidden(hubKey(f.id, v.key))));
+    if (f.kind !== 'readonly' && f.kind !== 'folder') {
+      const inFolder = g.type === 'subhub' ? g.subFolder ?? '' : null;
+      menu.addItem(i => i.setSection('danger').setTitle(t('menu.removeAll')).setIcon('x').setWarning(true)
+        .onClick(() => { void this.removeEverywhere(f, v, inFolder); }));
+    }
+    if (folder && !folder.isRoot()) {
+      menu.addItem(i => i.setSection('danger').setTitle(t('menu.deleteFolder')).setIcon('trash-2').setWarning(true)
+        .onClick(() => { void this.deleteItem(folder); }));
+    }
     menu.showAtPosition({ x, y });
+  }
+
+  private folderOf(key: string): TFolder | null {
+    const vault = this.plugin.app.vault;
+    const f = key === '/' ? vault.getRoot() : vault.getAbstractFileByPath(key);
+    return f instanceof TFolder ? f : null;
+  }
+
+  /** Take a value off every note in the base that has it, or, for a sub-hub, off those in its folder. */
+  private async removeEverywhere(f: FacetSpec, v: FacetValue, inFolder: string | null): Promise<void> {
+    let files = this.filesWith(f.id, v.key);
+    if (inFolder !== null) files = files.filter(file => (file.parent && !file.parent.isRoot() ? file.parent.path : '') === inFolder);
+    if (!files.length) return;
+    const label = f.kind === 'tags' ? tagLabel(v.label) : v.label;
+    if (files.length > 1 || this.plugin.settings.confirmBulk) {
+      const ok = await confirm(this.plugin, t('modal.removeAll.title', { value: label, n: files.length }),
+        t('modal.removeAll.desc', { value: label }));
+      if (!ok) return;
+    }
+    await this.plugin.actions.removeAll(files, f, v.key, label);
+  }
+
+  private renameItem(item: TFile | TFolder): void {
+    const current = item instanceof TFile ? item.basename : item.name;
+    new RenameModal(this.plugin, t('modal.rename.title', { value: current }), t('modal.renameFile.desc'), current, 'file', async text => {
+      await this.plugin.actions.renameItem(item, text);
+    }).open();
+  }
+
+  /** Delete always asks first, whatever the confirm settings say: it is the one change Undo cannot reach. */
+  private async deleteItem(item: TFile | TFolder): Promise<void> {
+    const name = item instanceof TFile ? item.basename : item.name;
+    let desc = t('modal.deleteNote.desc');
+    if (item instanceof TFolder) {
+      let n = 0;
+      Vault.recurseChildren(item, c => { if (c instanceof TFile) n++; });
+      desc = t('modal.deleteFolder.desc', { n });
+    }
+    if (!(await confirm(this.plugin, t('modal.delete.title', { name }), desc, true))) return;
+    await this.plugin.actions.trash(item);
+  }
+
+  /** A new, empty note in `folder`, named the way Obsidian names its own ("Untitled", "Untitled 1"…, in its language), opened to write in. */
+  private async newNoteIn(folder: TFolder): Promise<void> {
+    const vault = this.plugin.app.vault;
+    const base = (folder.isRoot() ? '' : folder.path + '/') + t('note.untitled');
+    let path = normalizePath(base + '.md');
+    for (let i = 1; vault.getAbstractFileByPath(path); i++) path = normalizePath(base + ' ' + i + '.md');
+    try {
+      const file = await vault.create(path, '');
+      await this.plugin.app.workspace.getLeaf(false).openFile(file);
+    } catch (e) {
+      new Notice(t('notice.failed', { note: path, error: e instanceof Error ? e.message : String(e) }));
+    }
   }
 
   private rename(f: FacetSpec, v: FacetValue): void {
     const files = this.filesWith(f.id, v.key);
     const current = f.kind === 'tags' ? v.label.replace(/^#/, '') : v.label;
     new RenameModal(this.plugin, t('modal.rename.title', { value: f.kind === 'tags' ? tagLabel(v.label) : v.label }),
-      t('modal.rename.desc', { n: files.length }), current, f.kind === 'tags', async text => {
+      t('modal.rename.desc', { n: files.length }), current, f.kind === 'tags' ? 'tag' : 'value', async text => {
         let to: FacetValue;
         if (f.kind === 'tags') to = { key: tagKey(text), label: text.replace(/^#/, '') };
         else if (f.kind === 'link') {
@@ -1577,16 +1670,17 @@ function count(n: number, one: Parameters<typeof t>[0], many: Parameters<typeof 
 
 /* ==================================================================== modals */
 
-function confirm(plugin: TagGraphPlugin, title: string, desc: string): Promise<boolean> {
+function confirm(plugin: TagGraphPlugin, title: string, desc: string, danger = false): Promise<boolean> {
   return new Promise(resolve => {
-    const m = new ConfirmModal(plugin, title, desc, resolve);
+    const m = new ConfirmModal(plugin, title, desc, resolve, danger);
     m.open();
   });
 }
 
 class ConfirmModal extends Modal {
   private done = false;
-  constructor(plugin: TagGraphPlugin, private title: string, private desc: string, private resolve: (ok: boolean) => void) {
+  constructor(plugin: TagGraphPlugin, private title: string, private desc: string, private resolve: (ok: boolean) => void,
+    private danger: boolean) {
     super(plugin.app);
   }
   onOpen(): void {
@@ -1594,7 +1688,10 @@ class ConfirmModal extends Modal {
     this.contentEl.createEl('p', { text: this.desc });
     new Setting(this.contentEl)
       .addButton(b => b.setButtonText(t('modal.cancel')).onClick(() => this.close()))
-      .addButton(b => b.setButtonText(t('modal.confirm')).setCta().onClick(() => { this.finish(true); }));
+      .addButton(b => {
+        b.setButtonText(t('modal.confirm')).onClick(() => { this.finish(true); });
+        if (this.danger) b.setWarning(); else b.setCta();
+      });
   }
   private finish(ok: boolean): void {
     if (this.done) return;
@@ -1610,7 +1707,7 @@ class ConfirmModal extends Modal {
 
 class RenameModal extends Modal {
   constructor(plugin: TagGraphPlugin, private title: string, private desc: string, private value: string,
-    private isTag: boolean, private submit: (text: string) => Promise<void>) {
+    private kind: 'tag' | 'value' | 'file', private submit: (text: string) => Promise<void>) {
     super(plugin.app);
   }
   onOpen(): void {
@@ -1621,7 +1718,8 @@ class RenameModal extends Modal {
     const go = async () => {
       const text = input.value.trim();
       if (!text) return;
-      if (this.isTag && !validTag(text)) { err.setText(t('modal.rename.invalid')); return; }
+      if (this.kind === 'tag' && !validTag(text)) { err.setText(t('modal.rename.invalid')); return; }
+      if (this.kind === 'file' && !validFileName(text)) { err.setText(t('modal.rename.badName')); return; }
       this.close();
       await this.submit(text);
     };
@@ -1633,3 +1731,4 @@ class RenameModal extends Modal {
   }
   onClose(): void { this.contentEl.empty(); }
 }
+

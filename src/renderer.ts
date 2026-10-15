@@ -372,10 +372,11 @@ export class Renderer {
     const deg = (n: SimNode) => this.adj.get(n.id)!.size || 1;
     sim
       .force('link', forceLink<SimNode, SimEdge>(this.edges)
-        .distance(l => l.e.type === 'member' ? l.target.r + 26 * dist : l.e.type === 'split' ? l.target.r + l.source.r + 18 * dist : 46 * dist)
+        .distance(l => l.e.type === 'member' ? l.target.r + 26 * dist
+          : l.e.type === 'split' || l.e.type === 'tree' ? l.target.r + l.source.r + 18 * dist : 46 * dist)
         .strength(l => {
           const base = 1 / Math.min(deg(l.source), deg(l.target));
-          return pull * (l.e.type === 'link' ? base * 0.5 : l.e.type === 'split' ? 0.7 : base);
+          return pull * (l.e.type === 'link' ? base * 0.5 : l.e.type === 'split' || l.e.type === 'tree' ? 0.7 : base);
         }))
       // The node being carried neither pushes nor bumps: otherwise whatever it is
       // brought towards — a small note above all — backs away before it can be dropped on.
@@ -1148,6 +1149,9 @@ export class Renderer {
       } else if (e.e.type === 'split') {
         key = 's' + e.e.facet; color = this.host.facetColor(e.e.facet!);
         width = 1.4; alpha = 0.6 * keep; dash = [4 * px, 3 * px];
+      } else if (e.e.type === 'tree') {
+        key = 't' + e.e.facet; color = this.host.facetColor(e.e.facet!);
+        width = 1.8 + 0.6 * l; alpha = (0.55 + 0.35 * l) * keep;
       } else {
         const kind = e.e.kind || 'body';
         key = 'l' + kind; color = kind === 'property' ? th.accent : th.muted;

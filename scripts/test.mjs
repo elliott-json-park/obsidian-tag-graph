@@ -175,6 +175,57 @@ test('folderMoveDest: a folder dropped on a folder goes inside it, never into it
 
 /* ---------------------------------------------------------------- insights */
 
+const folderFacet = { id: 'file.folder', label: 'Folder', kind: 'folder', list: false };
+const inFolder = path => {
+  const n = note(path);
+  const key = n.folder || '/';
+  n.facets['file.folder'] = [{ key, label: key === '/' ? 'Vault root' : key }];
+  return n;
+};
+
+test('folder tree: each folder hub joins its parent, drawing empty parents, one subtree per top-level folder', () => {
+  const notes = [inFolder('Work/Clients/Acme/a.md'), inFolder('Work/b.md'), inFolder('Home/c.md'), inFolder('d.md')];
+  const flat = M.buildGraph(notes, opts({ facets: [folderFacet] }));
+  assert.equal(flat.edges.filter(e => e.type === 'tree').length, 0);
+  const m = M.buildGraph(notes, opts({ facets: [folderFacet], folderTree: true }));
+  const tree = m.edges.filter(e => e.type === 'tree').map(e => e.source + ' -> ' + e.target).sort();
+  const h = k => M.hubId('file.folder', k);
+  assert.deepEqual(tree, [h('Work/Clients') + ' -> ' + h('Work'), h('Work/Clients/Acme') + ' -> ' + h('Work/Clients')].sort());
+  const clients = m.nodes.find(n => n.id === h('Work/Clients'));
+  assert.equal(clients.structural, true);
+  assert.equal(clients.count, 0);
+  assert.equal(m.nodes.find(n => n.id === h('Work')).structural, undefined);
+  // Top-level folders and the root are not joined to anything.
+  assert.ok(!m.edges.some(e => e.type === 'tree' && (e.source === h('Home') || e.source === h('/') || e.target === h('/'))));
+});
+
+test('folder tree: a hidden folder is skipped over, a below-minimum parent is drawn with its notes', () => {
+  const notes = [inFolder('A/B/C/x.md'), inFolder('A/B/C/y.md'), inFolder('A/z.md')];
+  const h = k => M.hubId('file.folder', k);
+  const m = M.buildGraph(notes, opts({ facets: [folderFacet], folderTree: true, minCount: 2,
+    hidden: new Set([M.hubKey('file.folder', 'A/B')]) }));
+  const tree = m.edges.filter(e => e.type === 'tree').map(e => e.source + ' -> ' + e.target);
+  assert.deepEqual(tree, [h('A/B/C') + ' -> ' + h('A')]);
+  assert.ok(!m.nodes.some(n => n.id === h('A/B')));
+  const a = m.nodes.find(n => n.id === h('A'));
+  assert.equal(a.count, 1);
+  assert.equal(a.structural, false);
+  assert.ok(m.edges.some(e => e.type === 'member' && e.source === M.noteId('A/z.md') && e.target === h('A')));
+});
+
+test('folder names: hubs are labelled with the folder name instead of the path', () => {
+  const notes = [inFolder('Work/Clients/a.md'), inFolder('b.md')];
+  const m = M.buildGraph(notes, opts({ facets: [folderFacet], folderTree: true, folderNames: true }));
+  assert.deepEqual(hubs(m), ['Clients', 'Vault root', 'Work']);
+  assert.deepEqual(hubs(M.buildGraph(notes, opts({ facets: [folderFacet] }))), ['Vault root', 'Work/Clients']);
+});
+
+test('validFileName refuses the characters Obsidian refuses', () => {
+  assert.equal(M.validFileName('Meeting notes 2026-10-15'), true);
+  assert.equal(M.validFileName('회의록'), true);
+  for (const bad of ['a/b', 'a\\b', 'a:b', 'a#b', 'a^b', 'a[b', 'a]b', 'a|b', 'a?b', '.', '..']) assert.equal(M.validFileName(bad), false, bad);
+});
+
 console.log('insights');
 
 const inote = (path, tags) => {

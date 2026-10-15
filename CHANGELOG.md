@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.4.0
+
+- **Folder trees** (#2): with the new view option *Link folders to their parent
+  folder*, each folder hub is joined to the hub of the folder it sits in, so a
+  folder hierarchy is drawn as a tree, one per top-level folder. A parent with
+  no notes of its own is drawn too, so the tree has no gaps. *Show folder names,
+  not paths* labels folder hubs `Acme` instead of `Work/Clients/Acme`.
+- **Create and rename from the graph** (#4): right-click empty space for a new
+  note, a folder hub for a new note in that folder, a note to rename it, a
+  folder hub to rename the folder. Links are updated as your settings say, and
+  a rename can be undone from its notice.
+- **Remove and delete from the graph** (#3): right-click a tag or value for
+  *Remove from all notes* (on a sub-hub, from the notes in its folder only),
+  which can be undone. A note in a folder gets *Move to vault root*, which takes
+  it off its folder hub. *Delete note* and *Delete folder* send them to the
+  trash your *Deleted files* setting chooses, and always ask first.
+
 ## 1.3.2
 
 - Code clean-up flagged by the directory review: "edited 3 days ago" is now
