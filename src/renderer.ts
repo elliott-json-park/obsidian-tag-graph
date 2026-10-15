@@ -637,12 +637,13 @@ export class Renderer {
     const center = this.centerId();
     if (center === this.waveCenter) return;
     this.waveCenter = center;
-    const c = center && !this.dragging ? this.byId.get(center) : null;
-    const wave = !!c && c.x !== undefined && this.motion();
+    const c = center && !this.dragging ? this.byId.get(center) : undefined;
+    const cx = c?.x, cy = c?.y;
+    const wave = cx !== undefined && cy !== undefined && this.motion();
     const max = this.hovered || this.previewId ? WAVE_MAX_MS * 0.6 : WAVE_MAX_MS;
     for (const n of this.nodes) {
-      n.waveAt = wave && n.x !== undefined
-        ? now + Math.min(max, Math.hypot(n.x - c!.x!, n.y! - c!.y!) * this.k / WAVE_SPEED)
+      n.waveAt = wave && n.x !== undefined && n.y !== undefined
+        ? now + Math.min(max, Math.hypot(n.x - cx, n.y - cy) * this.k / WAVE_SPEED)
         : 0;
     }
   }

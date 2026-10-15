@@ -67,6 +67,17 @@ const en = {
   'info.sortRecent': 'Recent',
   'info.lastEdited': 'Last edited {when}',
   'info.edited': 'Edited {when}',
+  'ago.now': 'just now',
+  'ago.minute': 'a minute ago',
+  'ago.minutes': '{n} minutes ago',
+  'ago.hour': 'an hour ago',
+  'ago.hours': '{n} hours ago',
+  'ago.day': 'yesterday',
+  'ago.days': '{n} days ago',
+  'ago.month': 'a month ago',
+  'ago.months': '{n} months ago',
+  'ago.year': 'a year ago',
+  'ago.years': '{n} years ago',
   'info.recent': '{n} of {total} edited in the last 30 days',
   'info.lookalike': 'Possibly the same value',
   'info.lookalikes': 'Possibly the same value',
@@ -251,6 +262,17 @@ const ko: Partial<Record<Key, string>> = {
   'info.sortRecent': '최근',
   'info.lastEdited': '마지막 수정 {when}',
   'info.edited': '{when} 수정',
+  'ago.now': '방금',
+  'ago.minute': '1분 전',
+  'ago.minutes': '{n}분 전',
+  'ago.hour': '1시간 전',
+  'ago.hours': '{n}시간 전',
+  'ago.day': '어제',
+  'ago.days': '{n}일 전',
+  'ago.month': '한 달 전',
+  'ago.months': '{n}달 전',
+  'ago.year': '1년 전',
+  'ago.years': '{n}년 전',
   'info.recent': '{total}개 중 {n}개가 최근 30일 안에 수정됨',
   'info.lookalike': '같은 값일 수도 있어요',
   'info.lookalikes': '같은 값일 수도 있어요',
@@ -378,4 +400,26 @@ export function t(key: Key, vars?: Record<string, string | number>): string {
   let s = table[key] ?? en[key];
   if (vars) for (const k of Object.keys(vars)) s = s.split('{' + k + '}').join(String(vars[k]));
   return s;
+}
+
+/**
+ * "3 days ago", in the app's language. Written out here rather than taken from
+ * moment, whose types the directory review does not have, so it reads as untyped.
+ */
+export function ago(time: number, now = Date.now()): string {
+  const s = Math.max(0, (now - time) / 1000);
+  const steps: [number, Key, Key, number][] = [
+    [3600, 'ago.minute', 'ago.minutes', 60],
+    [86400, 'ago.hour', 'ago.hours', 3600],
+    [86400 * 30, 'ago.day', 'ago.days', 86400],
+    [86400 * 365, 'ago.month', 'ago.months', 86400 * 30],
+    [Infinity, 'ago.year', 'ago.years', 86400 * 365],
+  ];
+  if (s < 45) return t('ago.now');
+  for (const [below, one, many, unit] of steps) {
+    if (s >= below) continue;
+    const n = Math.max(1, Math.round(s / unit));
+    return n === 1 ? t(one) : t(many, { n });
+  }
+  return t('ago.years', { n: Math.round(s / (86400 * 365)) });
 }

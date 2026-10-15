@@ -1,17 +1,17 @@
 import {
   BasesAllOptions, BasesPropertyId, BasesView, HoverParent, HoverPopover, Keymap, Menu, Modal,
-  Platform, QueryController, Setting, TFile, ToggleComponent, moment, parsePropertyId, setIcon,
+  Platform, QueryController, Setting, TFile, ToggleComponent, parsePropertyId, setIcon,
 } from 'obsidian';
 import type TagGraphPlugin from './main';
 import {
-  FacetSpec, FacetValue, GNode, GraphModel, LINK_KINDS, LinkKind, NoteInput,
+  FacetSpec, FacetValue, GNode, GraphModel, LINK_KINDS, LegendFacet, LinkKind, NoteInput,
   buildGraph, folderMoveDest, hubKey, hubId, noteId, paletteColor, tagLabel, tagKey,
 } from './model';
 import { Renderer, DropVerdict, GRAPH_DEFAULTS, GraphSettings } from './renderer';
 import { Resolver, facetSpec } from './values';
-import { InsightNote, missing, nearDuplicates, similarNotes, valueInsight } from './insights';
+import { DuplicatePair, InsightNote, missing, nearDuplicates, similarNotes, valueInsight } from './insights';
 import { fmAdd, fmAddTag, validTag } from './frontmatter';
-import { t } from './i18n';
+import { ago, t } from './i18n';
 
 export const VIEW_TYPE = 'tag-graph';
 
@@ -864,7 +864,7 @@ export class TagGraphView extends BasesView implements HoverParent {
     // Is it still in use? When it was last touched, and how much of it lately.
     if (vi.latest) {
       const when = el.createDiv({ cls: 'tag-graph-info-when' });
-      when.createSpan({ text: t('info.lastEdited', { when: moment(vi.latest.mtime).fromNow() }) + ' · ' });
+      when.createSpan({ text: t('info.lastEdited', { when: ago(vi.latest.mtime) }) + ' · ' });
       const link = when.createSpan({ cls: 'tag-graph-info-when-note', text: vi.latest.name });
       this.wireRow(link, noteId(vi.latest.path));
       when.createDiv({ cls: 'tag-graph-info-when-sub', text: t('info.recent', { n: vi.recent, total: members.length }) });
@@ -918,7 +918,7 @@ export class TagGraphView extends BasesView implements HoverParent {
       return out.slice(0, 2).join(' ');
     };
     for (const n of members.slice(0, limit)) {
-      this.noteRow(list, n, this.infoSort === 'recent' && n.mtime ? moment(n.mtime).fromNow() : oneFolder ? others(n) : undefined);
+      this.noteRow(list, n, this.infoSort === 'recent' && n.mtime ? ago(n.mtime) : oneFolder ? others(n) : undefined);
     }
     if (members.length > limit) {
       const more = sec.createDiv({ cls: 'tag-graph-info-more is-link', text: t('ui.more', { n: members.length - limit }) });
@@ -977,7 +977,7 @@ export class TagGraphView extends BasesView implements HoverParent {
     const row = this.rows.find(n => n.path === g.path);
     if (!row) return;
     this.infoHead(el, g.folder || t('ui.root'), g.label, line => this.nodeDot(line, g));
-    if (row.mtime) el.createDiv({ cls: 'tag-graph-info-when', text: t('info.edited', { when: moment(row.mtime).fromNow() }) });
+    if (row.mtime) el.createDiv({ cls: 'tag-graph-info-when', text: t('info.edited', { when: ago(row.mtime) }) });
     const ls = this.linkStats.get(g.id) || { out: [], in: [] };
     let valueCount = 0;
     for (const f of this.facets) valueCount += (row.values[f.id] || []).length;
@@ -1072,7 +1072,11 @@ export class TagGraphView extends BasesView implements HoverParent {
     const tidy: (() => void)[] = [];
     const sec = el.createDiv();
     const dupFacets = model.legend.filter(lf => !lf.hidden && (lf.facet.kind === 'tags' || lf.facet.kind === 'text' || lf.facet.kind === 'link'));
-    const dups = dupFacets.flatMap(lf => nearDuplicates(lf.values.map(x => ({ key: x.valueKey, label: x.label, count: x.count })), 4).map(p => ({ lf, p })));
+    // A loop, not flatMap: the ES2018 target has no flatMap, and the review reads it as untyped.
+    const dups: { lf: LegendFacet; p: DuplicatePair<{ key: string; label: string; count: number }> }[] = [];
+    for (const lf of dupFacets) {
+      for (const p of nearDuplicates(lf.values.map(x => ({ key: x.valueKey, label: x.label, count: x.count })), 4)) dups.push({ lf, p });
+    }
     if (dups.length) tidy.push(() => {
       const d = this.infoSection(sec, t('info.lookalikes'), dups.length);
       for (const { lf, p } of dups.slice(0, 4)) this.duplicateRow(d, lf.facet, p.from, p.into);
@@ -1290,7 +1294,7 @@ export class TagGraphView extends BasesView implements HoverParent {
     if (g.type === 'note') {
       el.createDiv({ cls: 'tag-graph-tip-title', text: g.label });
       const file = g.path ? this.notes.get(g.path)?.file : undefined;
-      const edited = file ? ' · ' + t('info.edited', { when: moment(file.stat.mtime).fromNow() }) : '';
+      const edited = file ? ' · ' + t('info.edited', { when: ago(file.stat.mtime) }) : '';
       el.createDiv({ cls: 'tag-graph-tip-sub', text: (g.folder || t('ui.root')) + edited });
       const meta = g.path ? this.notes.get(g.path) : undefined;
       if (meta) {

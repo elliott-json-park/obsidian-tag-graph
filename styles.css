@@ -844,8 +844,7 @@
 
 .tag-graph-info-when-note.is-link {
   cursor: pointer;
-  text-decoration: underline;
-  text-decoration-color: var(--text-faint);
+  border-bottom: 1px dotted var(--text-faint);
 }
 
 .tag-graph-info-when-sub {

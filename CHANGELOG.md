@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.2
+
+- Code clean-up flagged by the directory review: "edited 3 days ago" is now
+  worded by the plugin itself, and a few constructs the review reads as untyped
+  were rewritten (no change in behaviour).
+
 ## 1.3.1
 
 - **Linking a note to a note now needs Alt or Ctrl** (Option or Cmd on a Mac)
