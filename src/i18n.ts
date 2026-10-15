@@ -109,7 +109,7 @@ const en = {
   'panel.linkForce': 'Link force',
   'panel.linkDistance': 'Link distance',
 
-  'tip.note': 'Click to open · drag onto a value to add it',
+  'tip.note': 'Click to open · drag onto a value to add it · hold {keys} and drop on a note to link it',
   'tip.hub': 'Click for details · double-click to zoom in',
 
   'link.body': 'Note links',
@@ -123,6 +123,7 @@ const en = {
   'drop.move': 'Move to {value}',
   'drop.merge': 'Merge into {value}',
   'drop.link': 'Link from {prop}',
+  'drop.linkHold': 'Hold {keys} to link from {prop}',
   'drop.already': 'Already has {value}',
   'drop.cannot': 'Values of different properties cannot be merged',
   'drop.folderInside': 'A folder cannot go inside itself',
@@ -292,7 +293,7 @@ const ko: Partial<Record<Key, string>> = {
   'panel.linkForce': '링크 장력',
   'panel.linkDistance': '링크 거리',
 
-  'tip.note': '클릭하면 열기 · 값 위에 끌어 놓으면 추가',
+  'tip.note': '클릭하면 열기 · 값 위에 끌어 놓으면 추가 · {keys} 키를 누른 채 노트에 놓으면 링크',
   'tip.hub': '클릭하면 자세히 · 더블클릭하면 확대',
 
   'link.body': '노트 링크',
@@ -306,6 +307,7 @@ const ko: Partial<Record<Key, string>> = {
   'drop.move': '{value}(으)로 옮기기',
   'drop.merge': '{value}에 합치기',
   'drop.link': '{prop}에 링크 추가',
+  'drop.linkHold': '{keys} 키를 누르면 {prop}에 링크',
   'drop.already': '이미 {value} 있음',
   'drop.cannot': '다른 속성의 값끼리는 합칠 수 없어요',
   'drop.folderInside': '폴더를 자기 안으로 옮길 수는 없어요',

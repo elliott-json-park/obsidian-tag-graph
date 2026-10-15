@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.1
+
+- **Linking a note to a note now needs Alt or Ctrl** (Option or Cmd on a Mac)
+  held as you drop, so a note passed over on the way is never linked by
+  accident. Without the key the badge says which key to hold; pressing it mid-drag
+  switches at once. Drops on tags, values, folders and project notes are
+  unchanged, and on touch no key is needed.
+- Dropping a note on another note no longer chases it around: the note you
+  carry stops pushing others away, whatever is near the pointer holds still
+  while you drag (the rest of the graph keeps moving), and a drop target is
+  caught from a little further away.
+
 ## 1.3.0
 
 - **Details panel**: click a tag or value to see how many notes have it and what

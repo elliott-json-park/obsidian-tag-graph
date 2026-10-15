@@ -45,7 +45,7 @@ The graph is a way to change your notes, not only to look at them.
 | a note | a tag or value | adds it (a list property gets it appended; a single-value property like `status` is set to it) |
 | a note | a folder | moves the note into that folder |
 | a note | a note that is a value (e.g. a project note) | sets that property to a link to it |
-| a note | another note | adds a link to the other note in a property you choose (`related` by default) |
+| a note | another note, holding <kbd>Alt</kbd> or <kbd>Ctrl</kbd> (<kbd>⌥</kbd> or <kbd>⌘</kbd> on a Mac) | adds a link to the other note in a property you choose (`related` by default). Without the key nothing is linked, so a note you pass over on the way is safe; on a phone or tablet no key is needed |
 | a tag | another tag | **merges** them: every note in the base gets the second tag instead of the first |
 | a folder | another folder | moves the folder, with everything in it, into the other one (turn on *Move folders by dragging* first) |
 

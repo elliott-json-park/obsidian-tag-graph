@@ -1,6 +1,6 @@
 import {
   BasesAllOptions, BasesPropertyId, BasesView, HoverParent, HoverPopover, Keymap, Menu, Modal,
-  QueryController, Setting, TFile, ToggleComponent, moment, parsePropertyId, setIcon,
+  Platform, QueryController, Setting, TFile, ToggleComponent, moment, parsePropertyId, setIcon,
 } from 'obsidian';
 import type TagGraphPlugin from './main';
 import {
@@ -132,8 +132,8 @@ export class TagGraphView extends BasesView implements HoverParent {
       noteColor: key => paletteColor(this.colorIndex.get(key) ?? 0),
       open: (g, newTab) => this.openNode(g, newTab),
       context: (g, x, y) => this.contextMenu(g, x, y),
-      dropVerdict: (a, b) => this.dropVerdict(a, b),
-      drop: (a, b) => { void this.drop(a, b); },
+      dropVerdict: (a, b, key) => this.dropVerdict(a, b, key),
+      drop: (a, b, key) => { void this.drop(a, b, key); },
       hover: (g, ev) => this.hover(g, ev),
       focusChanged: () => { this.infoAll = false; this.setSpot(null, null); this.renderLegend(); this.renderInfo(); },
     });
@@ -1326,7 +1326,7 @@ export class TagGraphView extends BasesView implements HoverParent {
     }
     // What a click does, for as long as the editing hint is shown. Touch has its own gestures.
     if (mouse && this.plugin.settings.showHints) {
-      el.createDiv({ cls: 'tag-graph-tip-hint', text: g.type === 'note' ? t('tip.note') : t('tip.hub') });
+      el.createDiv({ cls: 'tag-graph-tip-hint', text: g.type === 'note' ? t('tip.note', { keys: linkKeys() }) : t('tip.hub') });
     }
   }
 
@@ -1370,7 +1370,12 @@ export class TagGraphView extends BasesView implements HoverParent {
     return null;
   }
 
-  private dropVerdict(a: GNode, b: GNode): DropVerdict | null {
+  /**
+   * What dropping `a` on `b` would do. A plain link between two notes needs
+   * Alt or Ctrl (Option or Cmd on a Mac) held, so passing over a note on the
+   * way somewhere does not link it by accident; touch has no keys and is exempt.
+   */
+  private dropVerdict(a: GNode, b: GNode, linkKey: boolean): DropVerdict | null {
     if (a.type === 'note' && b.type !== 'note') {
       const f = this.spec(b.facet);
       const v = this.valueOfHub(b);
@@ -1392,6 +1397,7 @@ export class TagGraphView extends BasesView implements HoverParent {
       }
       const prop = this.linkProperty();
       if (!prop) return null;
+      if (!linkKey) return { text: t('drop.linkHold', { keys: linkKeys(), prop }), ok: false };
       return { text: t('drop.link', { prop }), ok: true };
     }
     if (a.type !== 'note' && b.type !== 'note') {
@@ -1420,7 +1426,7 @@ export class TagGraphView extends BasesView implements HoverParent {
     return String(v ?? '').trim();
   }
 
-  private async drop(a: GNode, b: GNode): Promise<void> {
+  private async drop(a: GNode, b: GNode, linkKey: boolean): Promise<void> {
     const actions = this.plugin.actions;
     if (a.type === 'note' && b.type !== 'note') {
       const file = this.fileOf(a);
@@ -1442,7 +1448,7 @@ export class TagGraphView extends BasesView implements HoverParent {
       const lf = this.linkFacetOfNote(target.path);
       if (lf) { await actions.add(file, lf, { key: 'link:' + target.path, label: target.basename, notePath: target.path }); return; }
       const prop = this.linkProperty();
-      if (prop) await actions.link(file, target, prop);
+      if (prop && linkKey) await actions.link(file, target, prop);
       return;
     }
     if (a.type !== 'note' && b.type !== 'note') {
@@ -1553,6 +1559,11 @@ export class TagGraphView extends BasesView implements HoverParent {
       else fmAdd(fm, name, written, f.list, () => false);
     });
   }
+}
+
+/** The keys that turn a note-on-note drop into a link, as this platform names them. */
+function linkKeys(): string {
+  return Platform.isMacOS ? '⌥/⌘' : 'Alt/Ctrl';
 }
 
 /** A tile caption that agrees with its number: "1 note", "2 notes". */

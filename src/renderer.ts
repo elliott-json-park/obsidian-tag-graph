@@ -58,8 +58,9 @@ export interface RendererHost {
   noteColor(key: string): string;
   open(node: GNode, newTab: boolean): void;
   context(node: GNode | null, x: number, y: number): void;
-  dropVerdict(dragged: GNode, target: GNode): DropVerdict | null;
-  drop(dragged: GNode, target: GNode): void;
+  /** `linkKey`: Alt, Ctrl or Cmd is held (or the drag is by touch, which has no keys). */
+  dropVerdict(dragged: GNode, target: GNode, linkKey: boolean): DropVerdict | null;
+  drop(dragged: GNode, target: GNode, linkKey: boolean): void;
   hover(node: GNode | null, ev: PointerEvent | null): void;
   focusChanged(id: string | null): void;
 }
@@ -88,6 +89,10 @@ export const GRAPH_DEFAULTS: GraphSettings = {
 
 const TAU = Math.PI * 2;
 const DRAG_PX = 4;
+/** How near, on screen, the pointer must come to a node for it to take a drop. */
+const DROP_CATCH_PX = 14;
+/** While dragging, nodes this near the pointer on screen hold still. */
+const HOLD_PX = 110;
 const LONG_PRESS_MS = 550;
 /** Time constant of the highlight fade: quick, but eased rather than a jump. */
 const FADE_MS = 70;
@@ -172,6 +177,11 @@ export class Renderer {
   private dragging: SimNode | null = null;
   private dropTarget: SimNode | null = null;
   private held: { node: SimNode; wasPinned: boolean } | null = null;
+  /** Nodes held still because the pointer is near them mid-drag, and whether they were pinned before. */
+  private stilled = new Map<SimNode, boolean>();
+  /** Modifier keys held during the current drag, and whether it is by touch or pen. */
+  private dragKeys = false;
+  private dragTouch = false;
   private verdict: DropVerdict | null = null;
   private dragScreen = { x: 0, y: 0 };
   private pinch: { d: number; k: number; cx: number; cy: number; wx: number; wy: number } | null = null;
@@ -367,10 +377,12 @@ export class Renderer {
           const base = 1 / Math.min(deg(l.source), deg(l.target));
           return pull * (l.e.type === 'link' ? base * 0.5 : l.e.type === 'split' ? 0.7 : base);
         }))
+      // The node being carried neither pushes nor bumps: otherwise whatever it is
+      // brought towards — a small note above all — backs away before it can be dropped on.
       .force('charge', forceManyBody<SimNode>()
-        .strength(n => repel * (n.g.type === 'hub' ? -220 - Math.min(400, n.g.count * 6) : n.g.type === 'subhub' ? -110 : -38))
+        .strength(n => n === this.dragging ? 0 : repel * (n.g.type === 'hub' ? -220 - Math.min(400, n.g.count * 6) : n.g.type === 'subhub' ? -110 : -38))
         .distanceMax(900).theta(0.9))
-      .force('collide', forceCollide<SimNode>(n => n.r + (n.g.type === 'note' ? 2 : 6)).iterations(1))
+      .force('collide', forceCollide<SimNode>(n => n === this.dragging ? 0 : n.r + (n.g.type === 'note' ? 2 : 6)).iterations(1))
       // Pull towards the middle in proportion to the view's shape, so a wide
       // pane gets a wide graph. Notes with no connections are held closer, or
       // they drift to the edge and shrink everything else when fitting.
@@ -704,19 +716,24 @@ export class Renderer {
     return [ev.clientX - r.left, ev.clientY - r.top];
   }
 
-  /** Topmost node under a screen point. Hubs are drawn last, so they win. */
-  private hit(sx: number, sy: number, skip?: SimNode | null): SimNode | null {
+  /**
+   * Topmost node under a screen point. Hubs are drawn last, so they win.
+   * `catchPx` widens the reach (for drop targets, so a small note need not be
+   * hit dead on); outside every node, the one whose rim is nearest is taken.
+   */
+  private hit(sx: number, sy: number, skip?: SimNode | null, catchPx = 4): SimNode | null {
     const [wx, wy] = this.toWorld(sx, sy);
-    const slop = 4 / this.k;
+    const slop = catchPx / this.k;
     let best: SimNode | null = null;
-    let bestRank = -1;
+    let bestRank = -1, bestGap = Infinity;
     for (const n of this.nodes) {
       if (n === skip || n.x === undefined || n.y === undefined) continue;
-      const dx = n.x - wx, dy = n.y - wy;
-      const rr = n.r + slop;
-      if (dx * dx + dy * dy > rr * rr) continue;
-      const rank = n.g.type === 'hub' ? 2 : n.g.type === 'subhub' ? 1 : 0;
-      if (rank > bestRank) { best = n; bestRank = rank; }
+      const d = Math.hypot(n.x - wx, n.y - wy);
+      if (d > n.r + slop) continue;
+      const inside = d <= n.r;
+      const rank = inside ? (n.g.type === 'hub' ? 4 : n.g.type === 'subhub' ? 3 : 2) : 0;
+      const gap = d - n.r;
+      if (rank > bestRank || (rank === bestRank && gap < bestGap)) { best = n; bestRank = rank; bestGap = gap; }
     }
     return best;
   }
@@ -761,6 +778,14 @@ export class Renderer {
         if (this.dragging) { this.cancelDrag(); return; }
         if (this.focusId) { this.focusId = null; this.host.focusChanged(null); this.dirty = true; this.loop(); }
       }
+      if (this.dragging && (ev.key === 'Alt' || ev.key === 'Control' || ev.key === 'Meta')) {
+        // Alt on its own would otherwise move focus to the window menu on some systems.
+        ev.preventDefault();
+        this.setLinkKey(ev);
+      }
+    });
+    c.addEventListener('keyup', ev => {
+      if (this.dragging && (ev.key === 'Alt' || ev.key === 'Control' || ev.key === 'Meta')) this.setLinkKey(ev);
     });
   }
 
@@ -793,6 +818,8 @@ export class Renderer {
     this.canvas.setPointerCapture(ev.pointerId);
     const node = this.hit(sx, sy);
     this.down = { id: ev.pointerId, x: sx, y: sy, node, moved: false, button: ev.button, mod: ev.ctrlKey || ev.metaKey };
+    this.dragTouch = ev.pointerType !== 'mouse';
+    this.dragKeys = ev.altKey || ev.ctrlKey || ev.metaKey;
     this.viewAnim = null;
     if (ev.pointerType !== 'mouse') {
       this.clearPress();
@@ -842,13 +869,14 @@ export class Renderer {
       const n = this.dragging;
       n.fx = wx; n.fy = wy; n.x = wx; n.y = wy;
       this.dragScreen = { x: sx, y: sy };
-      const target = this.hit(sx, sy, n);
+      const target = this.hit(sx, sy, n, DROP_CATCH_PX);
       if (target !== this.dropTarget) {
         this.dropTarget = target;
-        this.verdict = target ? this.host.dropVerdict(n.g, target.g) : null;
+        this.verdict = target ? this.host.dropVerdict(n.g, target.g, this.linkKey()) : null;
         this.badgeAt = performance.now();
         this.holdTarget(target);
-      }
+      } else this.setLinkKey(ev);
+      this.holdNear(wx, wy, n);
       this.edgePan(sx, sy);
     } else {
       this.tx += sx - d.x; this.ty += sy - d.y;
@@ -885,9 +913,10 @@ export class Renderer {
     if (this.canvas.hasPointerCapture(ev.pointerId)) this.canvas.releasePointerCapture(ev.pointerId);
 
     if (this.dragging) {
-      const n = this.dragging, target = this.dropTarget, verdict = this.verdict;
+      this.setLinkKey(ev);
+      const n = this.dragging, target = this.dropTarget, verdict = this.verdict, key = this.linkKey();
       this.endDrag();
-      if (target && verdict && verdict.ok) { this.pulse(target.id); this.host.drop(n.g, target.g); }
+      if (target && verdict && verdict.ok) { this.pulse(target.id); this.host.drop(n.g, target.g, key); }
       return;
     }
     if (d.moved) return;
@@ -939,12 +968,32 @@ export class Renderer {
     this.host.hover(n?.g || null, ev);
   }
 
+  /** Alt, Ctrl or Cmd held — or a drag by touch or pen, which has no keys to hold. */
+  private linkKey(): boolean {
+    return this.dragKeys || this.dragTouch;
+  }
+
+  /** Read the keys off an event; if that changes what a drop would do, say so at once. */
+  private setLinkKey(ev: { altKey: boolean; ctrlKey: boolean; metaKey: boolean }): void {
+    const keys = ev.altKey || ev.ctrlKey || ev.metaKey;
+    if (keys === this.dragKeys) return;
+    this.dragKeys = keys;
+    if (this.dragging && this.dropTarget) {
+      this.verdict = this.host.dropVerdict(this.dragging.g, this.dropTarget.g, this.linkKey());
+      this.badgeAt = performance.now();
+      this.dirty = true;
+      this.loop();
+    }
+  }
+
   private startDrag(n: SimNode): void {
     this.dragging = n;
     this.hovered = null;
     this.host.hover(null, null);
     this.canvas.addClass('is-dragging');
     n.fx = n.x; n.fy = n.y;
+    // Re-read the forces, which now leave the carried node out of repulsion and collision.
+    this.applyForces();
     // The layout stays alive while a node is carried, so its neighbours follow
     // it. Only a frozen or motionless graph holds still.
     if (this.sim && !this.frozen && this.animate) this.sim.alphaTarget(0.08).alpha(Math.max(this.sim.alpha(), 0.08));
@@ -957,7 +1006,8 @@ export class Renderer {
   private holdTarget(target: SimNode | null): void {
     const prev = this.held;
     if (prev && prev.node !== target) {
-      if (!prev.wasPinned) { prev.node.fx = null; prev.node.fy = null; }
+      // Still near the pointer: the hold around it keeps it, not this.
+      if (!prev.wasPinned && !this.stilled.has(prev.node)) { prev.node.fx = null; prev.node.fy = null; }
       this.held = null;
     }
     if (target && (!this.held || this.held.node !== target)) {
@@ -968,6 +1018,36 @@ export class Renderer {
     }
   }
 
+  /**
+   * Keep still whatever is near the pointer while a node is carried. The
+   * carried node still pulls its hubs, and they pull their other notes, so
+   * without this the very note being aimed at drifts off with the crowd. Far
+   * away the layout stays alive; each node rejoins once the pointer has gone.
+   */
+  private holdNear(wx: number, wy: number, carried: SimNode): void {
+    const reach = HOLD_PX / this.k;
+    const near = new Set<SimNode>();
+    for (const n of this.nodes) {
+      if (n === carried || n.x === undefined || n.y === undefined) continue;
+      if (Math.hypot(n.x - wx, n.y - wy) - n.r <= reach) near.add(n);
+    }
+    for (const [n, wasPinned] of this.stilled) {
+      if (near.has(n)) continue;
+      if (!wasPinned && this.held?.node !== n) { n.fx = null; n.fy = null; }
+      this.stilled.delete(n);
+    }
+    for (const n of near) {
+      if (this.stilled.has(n)) continue;
+      this.stilled.set(n, n.fx !== null && n.fx !== undefined);
+      n.fx = n.x; n.fy = n.y; n.vx = 0; n.vy = 0;
+    }
+  }
+
+  private releaseStilled(): void {
+    for (const [n, wasPinned] of this.stilled) if (!wasPinned) { n.fx = null; n.fy = null; }
+    this.stilled.clear();
+  }
+
   private endDrag(): void {
     const n = this.dragging;
     if (!n) return;
@@ -976,6 +1056,8 @@ export class Renderer {
     this.verdict = null;
     this.canvas.removeClass('is-dragging');
     this.holdTarget(null);
+    this.releaseStilled();
+    this.applyForces();
     // Frozen: the node stays where it was put. Otherwise it rejoins the layout.
     n.fx = null; n.fy = null;
     n.vx = 0; n.vy = 0;
