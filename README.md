@@ -9,7 +9,7 @@ other still end up side by side when they share a tag, so a vault held together
 by tags and properties finally has a shape you can see. And the graph is not
 read-only: drop a note on a tag to tag it, drop one tag on another to merge them.
 
-![Tag Graph: 55 notes drawn around 18 tag hubs, coloured by top-level folder, with the legend listing tags, link kinds and folders](docs/hero.png)
+![Tag Graph: 55 notes drawn around 18 tag hubs, coloured by top-level folder, with the legend listing tags, link kinds and folders and a status line counting notes, values and links](docs/hero.png)
 
 ![Dragging a task onto the "done" hub: its connections stay highlighted, a badge says "Set status to done", and on release the note is changed and an Undo notice appears](docs/drag.gif)
 
@@ -61,6 +61,38 @@ Undo only goes ahead if the files are still exactly as the edit left them.
 
 ---
 
+## Details: what a tag is doing
+
+Click a tag (or any value) and a **details panel** says what the graph only hints at:
+
+- **How much** — how many notes have it, and what share of the base that is.
+- **How alive** — when it was last edited, in which note, and how many of its
+  notes changed in the last 30 days.
+- **Where** — which folders it is used in, with a bar for each. Hover a folder to
+  light just those notes.
+- **What it comes with** — the values most often used on the same notes
+  (`#task` → `#waiting`, `#urgent`…). Click one to fly to it.
+- **Which notes** — the list, each with its other tags, sorted by name or by most
+  recently edited. Hover to find it on the graph, click to open it.
+- **Possibly the same value** — `#recipes` next to `#recipe`, `#to-read` next to
+  `#toread`, `#jounral` next to `#journal`, with a **Merge** button.
+- **Rename**, **New note** and **Hide** buttons.
+
+The **ⓘ** button with nothing selected shows the whole base at a glance: how many
+notes have each property (and a button that lights the ones that do not — your
+untagged notes), the most used values, every look-alike pair, values hidden as
+rare, and notes with no connections.
+
+![The overview: 55 notes, tag coverage 98%, the most used tags, and two look-alike pairs — #refrence into #reference, #ideas into #idea — each with a Merge button](docs/overview.png)
+
+Right-click a note and choose **Details** for its values, its links in and out,
+and the notes it shares the most with — a rare shared tag counts for more than
+a common one.
+
+![The details panel for #task: 17 notes, 31% of the base, often used with #research and #waiting, and its notes](docs/details.png)
+
+---
+
 ## More than tags
 
 Tags are the first hub property, but you can pick up to four: any note property
@@ -94,15 +126,26 @@ It follows your theme, light or dark:
 
 - **Click** a note to open it (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>-click: new tab).
   <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>-hover for a page preview.
-- **Click** a tag to highlight its notes. **Double-click** it to zoom to them.
-  The same works in the legend, and **hovering** a legend row previews its
-  notes on the graph.
+- **Click** a tag to highlight its notes and open its details. **Double-click**
+  it to zoom to them. The same works in the legend, and **hovering** a legend row
+  previews its notes on the graph.
+- **Search** lists matching values and notes as you type; <kbd>↑</kbd>/<kbd>↓</kbd>
+  and <kbd>Enter</kbd> fly to one. <kbd>Enter</kbd> with nothing picked zooms to
+  every match.
 - **Hover** a node and its connections fade in while the rest fades back —
   quickly, but without a jolt.
 - **Drag** to edit. While you drag, the note's own connections stay highlighted
   and the target under the pointer holds still.
 - **Scroll** to zoom, **drag the background** to pan. <kbd>Esc</kbd> cancels a
   drag and clears the highlight.
+- **Keys** on the graph: <kbd>/</kbd> search, <kbd>i</kbd> details,
+  <kbd>f</kbd> fit, <kbd>+</kbd>/<kbd>-</kbd> zoom, <kbd>←</kbd>/<kbd>→</kbd>
+  through the values (biggest first), <kbd>↑</kbd>/<kbd>↓</kbd> through what the
+  focused node is joined to — each step shows its details.
+- **Motion** says what changed: the graph blooms in hubs first, a highlight
+  spreads out from what you clicked, a drop draws the link it will make before
+  you let go, and new nodes pop in where an edit put them. *Animate the layout*
+  off — or your system's reduced-motion setting — keeps it all still.
 - **On a phone or tablet:** pinch to zoom, tap a note to see its tags, tap again
   to open it, long-press for the menu.
 

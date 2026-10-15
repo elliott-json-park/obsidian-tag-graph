@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.3.0
+
+- **Details panel**: click a tag or value to see how many notes have it and what
+  share of the base that is, which folders it is used in, the values it is most
+  often used with, its notes (each with its other tags), and look-alike values
+  such as `#recipes`/`#recipe` with a Merge button. Rename, New note and Hide
+  are there too.
+- **Overview**: the ⓘ button with nothing selected shows how well each property
+  covers the base (with a button that lights the notes missing it), the most
+  used values, look-alike pairs, rare hidden values and loose notes.
+- **Note details** (right-click → Details): a note's values, links in and out,
+  and the notes most like it, weighing rare shared tags above common ones.
+- **Search lists results** as you type — values first — with arrow keys and
+  Enter to fly to one.
+- **Motion**: the graph blooms in, hubs first; a focus spreads outwards; hovered
+  nodes and drop targets swell; a drop previews the links it will make (for a
+  merge, every note of the carried tag) and ripples when it lands; nodes an edit
+  adds pop in and removed ones shrink away. All of it stays off with *Animate
+  the layout* off or the system's reduced-motion setting.
+- Hub names sit on a plate so they read over the lines, and move above their hub
+  when below would sit on another hub; a focused hub fills in.
+- **Recency**: a value's details say when it was last edited (and in which note)
+  and how many of its notes changed in the last 30 days; its notes can be sorted
+  by name or by most recent. Note details and tooltips show when a note was edited.
+- The details panel never covers what it describes: the view glides the focused
+  node and its neighbours into the open space.
+- Keys on the graph: `/` search, `i` details, `f` fit, `+`/`-` zoom; arrow keys
+  walk the graph — left/right through the values by size, up/down through the
+  focused node's neighbours — showing each one's details.
+- The status line also counts links.
+- On a phone the details panel is a sheet along the bottom, kept above
+  Obsidian's navigation bar; long-press a note and choose **Details**.
+
 ## 1.2.0
 
 - **Move folders by dragging**: with the new setting on (it is off by default),

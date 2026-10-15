@@ -385,6 +385,10 @@
   margin-top: 6px;
 }
 
+.tag-graph-tip-links {
+  margin-top: 4px;
+}
+
 .tag-graph-tip-hint {
   margin-top: 6px;
   font-size: var(--font-ui-smaller);
@@ -398,6 +402,513 @@
   color: var(--text-normal);
   background: color-mix(in srgb, var(--fg-color) 16%, var(--background-primary));
   border: 1px solid color-mix(in srgb, var(--fg-color) 45%, transparent);
+}
+
+/* ---------------------------------------------------------------- search results */
+
+.tag-graph-results {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  min-width: 240px;
+  padding: var(--size-2-2);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-l);
+  z-index: 3;
+}
+
+.tag-graph.has-results .tag-graph-results {
+  display: block;
+  animation: tag-graph-drop 140ms ease-out;
+}
+
+.tag-graph-result {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-2-2) var(--size-4-2);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.tag-graph-result:hover,
+.tag-graph-result.is-active {
+  background: var(--background-modifier-hover);
+}
+
+.tag-graph-result-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tag-graph-result-name,
+.tag-graph-result-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-graph-result-name {
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+}
+
+.tag-graph-result-hit {
+  font-weight: var(--font-bold);
+  color: var(--text-accent);
+}
+
+.tag-graph-result-sub {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.tag-graph-result-count {
+  flex: none;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- details panel */
+/* Shares the right-hand column with the settings panel; only one shows at a time. */
+
+.tag-graph-info {
+  display: none;
+  flex: 0 1 auto;
+  width: 288px;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-s);
+  font-size: var(--font-ui-small);
+}
+
+.tag-graph.has-info .tag-graph-info {
+  display: block;
+  animation: tag-graph-slide 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.tag-graph-info-body {
+  padding: var(--size-4-3) var(--size-4-3) var(--size-4-2);
+}
+
+.tag-graph-info-body.is-enter {
+  animation: tag-graph-fade 220ms ease-out;
+}
+
+.tag-graph-info-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+}
+
+.tag-graph-info-kind {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-width: 0;
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-graph-info-kind-icon {
+  display: flex;
+}
+
+.tag-graph-info-kind-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.tag-graph-info-close {
+  flex: none;
+  margin: calc(var(--size-2-2) * -1) calc(var(--size-2-2) * -1) calc(var(--size-2-2) * -1) 0;
+}
+
+.tag-graph-info-title {
+  margin: var(--size-2-2) 0 var(--size-4-2);
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-bold);
+  line-height: 1.25;
+  color: var(--text-normal);
+  overflow-wrap: anywhere;
+}
+
+/* The numbers that answer "how much": a big figure over a small caption. */
+.tag-graph-info-stats {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: var(--size-2-2);
+}
+
+.tag-graph-info-stat {
+  padding: var(--size-2-3) var(--size-4-2);
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  min-width: 0;
+}
+
+.tag-graph-info-stat-value {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-bold);
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-graph-info-stat-label {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-graph-info-meter,
+.tag-graph-tip-meter {
+  height: 4px;
+  margin-top: var(--size-4-2);
+  background: var(--background-modifier-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tag-graph-tip-meter {
+  margin: 6px 0 2px;
+  width: 160px;
+  max-width: 100%;
+}
+
+.tag-graph-info-section {
+  margin-top: var(--size-4-4);
+}
+
+.tag-graph-info-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-2-3);
+  margin-bottom: var(--size-2-2);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  color: var(--text-muted);
+}
+
+.tag-graph-info-section-count {
+  color: var(--text-faint);
+  font-weight: var(--font-normal);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A label, a bar for its share, a number. */
+.tag-graph-info-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-height: 24px;
+  padding: 0 var(--size-2-3);
+  margin: 0 calc(var(--size-2-3) * -1);
+  border-radius: var(--radius-s);
+}
+
+.tag-graph-info-bar-label {
+  flex: 0 1 44%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-normal);
+}
+
+.tag-graph-info-bar-track {
+  flex: 1 1 auto;
+  height: 6px;
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.tag-graph-info-bar-fill {
+  display: block;
+  height: 100%;
+  width: calc(var(--fg-share, 0) * 100%);
+  background: var(--fg-color);
+  border-radius: inherit;
+  transform-origin: left center;
+}
+
+.tag-graph-info-body.is-enter .tag-graph-info-bar-fill {
+  animation: tag-graph-grow 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: var(--fg-delay, 0ms);
+}
+
+.tag-graph-info-bar-value {
+  flex: none;
+  min-width: 2ch;
+  text-align: right;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-graph-info-bar.is-link,
+.tag-graph-info-note.is-link,
+.tag-graph-info-dup-name.is-link,
+.tag-graph-chip.is-link {
+  cursor: pointer;
+}
+
+.tag-graph-info-bar.is-link:hover,
+.tag-graph-info-note.is-link:hover {
+  background: var(--background-modifier-hover);
+}
+
+.tag-graph-info-bar.is-static .tag-graph-info-bar-label {
+  color: var(--text-muted);
+}
+
+.tag-graph-info-notes {
+  display: flex;
+  flex-direction: column;
+}
+
+.tag-graph-info-note {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-height: 26px;
+  padding: 0 var(--size-2-3);
+  margin: 0 calc(var(--size-2-3) * -1);
+  border-radius: var(--radius-s);
+}
+
+.tag-graph-info-note-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-normal);
+}
+
+.tag-graph-info-note-sub {
+  flex: 0 1 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.tag-graph-info-more {
+  padding-top: var(--size-2-1);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.tag-graph-info-more.is-link {
+  color: var(--text-accent);
+  cursor: pointer;
+}
+
+.tag-graph-info-more.is-link:hover {
+  text-decoration: underline;
+}
+
+.tag-graph-info-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-2);
+}
+
+.tag-graph-chip.is-link:hover {
+  background: color-mix(in srgb, var(--fg-color) 30%, var(--background-primary));
+}
+
+.tag-graph-info-dup,
+.tag-graph-info-spot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+  min-height: 30px;
+}
+
+.tag-graph-info-dup-names {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--size-2-2);
+  min-width: 0;
+}
+
+.tag-graph-info-dup-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  color: var(--text-normal);
+}
+
+.tag-graph-info-dup-count {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-graph-info-dup-arrow {
+  display: flex;
+  color: var(--text-faint);
+}
+
+.tag-graph-info-dup-arrow svg {
+  width: 12px;
+  height: 12px;
+}
+
+.tag-graph-info-dup button,
+.tag-graph-info-spot button {
+  flex: none;
+  height: 24px;
+  padding: 0 var(--size-4-2);
+  font-size: var(--font-ui-smaller);
+}
+
+.tag-graph-info-spot-text {
+  min-width: 0;
+  color: var(--text-muted);
+}
+
+.tag-graph-info-ok {
+  margin-top: var(--size-4-4);
+  padding: var(--size-4-2);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+}
+
+.tag-graph-info-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-3);
+  margin-top: var(--size-4-4);
+  padding-top: var(--size-4-3);
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.tag-graph-info-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-2-3);
+  height: 28px;
+  padding: 0 var(--size-4-2);
+  font-size: var(--font-ui-smaller);
+}
+
+.tag-graph-info-action-icon {
+  display: flex;
+}
+
+.tag-graph-info-action-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* When a value or note was last touched. */
+.tag-graph-info-when {
+  margin-top: var(--size-4-2);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.tag-graph-info-title + .tag-graph-info-when {
+  margin: calc(var(--size-4-1) * -1) 0 var(--size-4-2);
+}
+
+.tag-graph-info-when-note {
+  color: var(--text-normal);
+  border-radius: var(--radius-s);
+}
+
+.tag-graph-info-when-note.is-link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--text-faint);
+}
+
+.tag-graph-info-when-sub {
+  color: var(--text-faint);
+}
+
+.tag-graph-info-sort {
+  display: flex;
+  gap: var(--size-2-1);
+  margin-left: auto;
+  font-weight: var(--font-normal);
+}
+
+.tag-graph-info-sort-item {
+  padding: 0 var(--size-2-3);
+  border-radius: var(--radius-s);
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.tag-graph-info-sort-item:hover {
+  color: var(--text-normal);
+}
+
+.tag-graph-info-sort-item.is-active {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* ---------------------------------------------------------------- motion */
+
+@keyframes tag-graph-slide {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes tag-graph-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes tag-graph-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes tag-graph-drop {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes tag-graph-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tag-graph.has-info .tag-graph-info,
+  .tag-graph-info-body.is-enter,
+  .tag-graph-info-body.is-enter .tag-graph-info-bar-fill,
+  .tag-graph.has-results .tag-graph-results {
+    animation: none;
+  }
 }
 
 /* ---------------------------------------------------------------- status, hint, empty */
@@ -508,6 +1019,30 @@
   top: 56px;
   width: min(230px, calc(100% - 16px));
   max-height: calc(100% - 96px);
+}
+
+/* The details panel becomes a sheet along the bottom. */
+.tag-graph.is-narrow .tag-graph-side {
+  bottom: var(--size-4-2);
+}
+
+/* On a phone, Obsidian's floating navigation bar covers the bottom of the view. */
+.is-mobile .tag-graph.is-narrow .tag-graph-side {
+  bottom: calc(var(--navbar-height, 0px) + var(--size-4-2));
+}
+
+.tag-graph.is-narrow .tag-graph-info {
+  width: auto;
+  max-height: 46%;
+  margin-top: auto;
+}
+
+.tag-graph.is-narrow.has-info .tag-graph-info {
+  animation-name: tag-graph-rise;
+}
+
+.tag-graph.is-narrow.has-info .tag-graph-legend {
+  max-height: calc(54% - 72px);
 }
 
 .tag-graph.is-narrow .tag-graph-hint,

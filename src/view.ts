@@ -1,6 +1,6 @@
 import {
   BasesAllOptions, BasesPropertyId, BasesView, HoverParent, HoverPopover, Keymap, Menu, Modal,
-  QueryController, Setting, TFile, ToggleComponent, parsePropertyId, setIcon,
+  QueryController, Setting, TFile, ToggleComponent, moment, parsePropertyId, setIcon,
 } from 'obsidian';
 import type TagGraphPlugin from './main';
 import {
@@ -9,6 +9,7 @@ import {
 } from './model';
 import { Renderer, DropVerdict, GRAPH_DEFAULTS, GraphSettings } from './renderer';
 import { Resolver, facetSpec } from './values';
+import { InsightNote, missing, nearDuplicates, similarNotes, valueInsight } from './insights';
 import { fmAdd, fmAddTag, validTag } from './frontmatter';
 import { t } from './i18n';
 
@@ -78,11 +79,18 @@ export class TagGraphView extends BasesView implements HoverParent {
   private freezeBtn: HTMLElement;
   private panelBtn: HTMLElement;
   private panelEl: HTMLElement;
+  private infoBtn: HTMLElement;
+  private infoEl: HTMLElement;
+  private resultsEl: HTMLElement;
   private resolver: Resolver;
 
   private model: GraphModel | null = null;
   private facets: FacetSpec[] = [];
   private notes = new Map<string, NoteMeta>();
+  /** The same notes, as the details panel reads them. */
+  private rows: InsightNote[] = [];
+  /** Note id -> links drawn out of it and into it. */
+  private linkStats = new Map<string, { out: string[]; in: string[] }>();
   private values = new Map<string, FacetValue>();
   private colorIndex = new Map<string, number>();
   private expanded = new Set<string>();
@@ -97,6 +105,22 @@ export class TagGraphView extends BasesView implements HoverParent {
   private folded = new Set<PanelSection>();
   /** A panel slider is being dragged: a redraw of the panel now would drop it. */
   private sliding = false;
+  /** The details panel was opened by hand; it also opens by itself while something is focused. */
+  private infoOpen = false;
+  /** Which group the details panel has lit on the graph (e.g. untagged notes), if any. */
+  private spotKey: string | null = null;
+  /** Notes list in the details panel shows everything rather than the first few. */
+  private infoAll = false;
+  /** What the details panel showed last, so it animates only when that changes. */
+  private infoSubject = '';
+  /** Bars drawn so far in this render of the panel, to stagger their growth. */
+  private barIndex = 0;
+  /** Where an up/down walk started, so it steps among that node's neighbours. */
+  private stepFrom: string | null = null;
+  /** Order of the notes list in the details panel. */
+  private infoSort: 'name' | 'recent' = 'name';
+  private results: GNode[] = [];
+  private resultIndex = -1;
 
   constructor(controller: QueryController, containerEl: HTMLElement, private plugin: TagGraphPlugin) {
     super(controller);
@@ -111,7 +135,7 @@ export class TagGraphView extends BasesView implements HoverParent {
       dropVerdict: (a, b) => this.dropVerdict(a, b),
       drop: (a, b) => { void this.drop(a, b); },
       hover: (g, ev) => this.hover(g, ev),
-      focusChanged: () => this.renderLegend(),
+      focusChanged: () => { this.infoAll = false; this.setSpot(null, null); this.renderLegend(); this.renderInfo(); },
     });
 
     this.legendEl = this.root.createDiv({ cls: 'tag-graph-legend' });
@@ -127,11 +151,11 @@ export class TagGraphView extends BasesView implements HoverParent {
     const search = bar.createDiv({ cls: 'tag-graph-search' });
     this.searchEl = search.createEl('input', { type: 'search', attr: { placeholder: t('ui.search'), 'aria-label': t('ui.search') } });
     this.searchCount = search.createSpan({ cls: 'tag-graph-search-count' });
+    this.resultsEl = search.createDiv({ cls: 'tag-graph-results', attr: { role: 'listbox' } });
     this.searchEl.addEventListener('input', () => this.onSearch());
-    this.searchEl.addEventListener('keydown', ev => {
-      if (ev.key === 'Enter') this.renderer.fitMatches();
-      if (ev.key === 'Escape') { this.searchEl.value = ''; this.onSearch(); this.renderer.canvas.focus(); }
-    });
+    this.searchEl.addEventListener('keydown', ev => this.searchKey(ev));
+    this.searchEl.addEventListener('focus', () => this.renderResults());
+    this.searchEl.addEventListener('blur', () => window.setTimeout(() => this.root.removeClass('has-results'), 120));
     this.button(bar, 'list', t('ui.legend'), () => {
       if (this.narrow) {
         this.narrowLegend = !this.narrowLegend;
@@ -140,6 +164,7 @@ export class TagGraphView extends BasesView implements HoverParent {
       } else this.config.set('legendOpen', this.config.get('legendOpen') === false);
       this.applyLegend();
     });
+    this.infoBtn = this.button(bar, 'info', t('ui.details'), () => this.toggleInfo());
     this.button(bar, 'maximize', t('ui.fit'), () => this.renderer.fit());
     this.freezeBtn = this.button(bar, 'snowflake', t('ui.freeze'), () => this.setFrozen(!this.renderer.frozen));
     this.panelBtn = this.button(bar, 'settings', t('ui.settings'), () => this.setPanel(!this.panelOpen));
@@ -147,6 +172,9 @@ export class TagGraphView extends BasesView implements HoverParent {
     this.panelEl.addEventListener('keydown', ev => {
       if (ev.key === 'Escape') { ev.stopPropagation(); this.setPanel(false); this.panelBtn.focus(); }
     });
+    this.infoEl = side.createDiv({ cls: 'tag-graph-info' });
+    this.infoEl.addEventListener('mouseleave', () => this.renderer.setPreview(null));
+    this.renderer.canvas.addEventListener('keydown', ev => this.canvasKey(ev));
 
     this.registerEvent(this.plugin.app.workspace.on('css-change', () => { this.readTheme(); this.renderer.refresh(); }));
     const ro = new ResizeObserver(() => {
@@ -263,6 +291,7 @@ export class TagGraphView extends BasesView implements HoverParent {
     const inputs: NoteInput[] = [];
     this.notes.clear();
     this.values.clear();
+    this.rows = [];
     for (const entry of entries) {
       const file = entry.file;
       const values: Record<string, FacetValue[]> = {};
@@ -280,6 +309,7 @@ export class TagGraphView extends BasesView implements HoverParent {
       else colors = [file.path.includes('/') ? file.path.slice(0, file.path.indexOf('/')) : t('ui.root')];
       const folder = file.parent ? (file.parent.isRoot() ? '' : file.parent.path) : '';
       inputs.push({ path: file.path, name: file.basename, folder, facets: values, colors, links: this.resolver.links(file, skip) });
+      this.rows.push({ path: file.path, name: file.basename, folder, values, mtime: file.stat.mtime });
       this.notes.set(file.path, { file, values });
     }
     this.facets = facets;
@@ -296,6 +326,20 @@ export class TagGraphView extends BasesView implements HoverParent {
     this.model = model;
     this.colorIndex.clear();
     model.colorKeys.forEach((c, i) => this.colorIndex.set(c.key, i));
+    this.linkStats.clear();
+    const stat = (id: string) => {
+      let s = this.linkStats.get(id);
+      if (!s) { s = { out: [], in: [] }; this.linkStats.set(id, s); }
+      return s;
+    };
+    // One entry per linked note, however many kinds of link join them.
+    const add = (list: string[], id: string) => { if (!list.includes(id)) list.push(id); };
+    for (const e of model.edges) {
+      if (e.type !== 'link') continue;
+      add(stat(e.source).out, e.target);
+      add(stat(e.target).in, e.source);
+      if (e.both) { add(stat(e.target).out, e.source); add(stat(e.source).in, e.target); }
+    }
 
     this.renderer.frozen = this.bool('frozen', false);
     this.updateFreezeButton();
@@ -308,8 +352,10 @@ export class TagGraphView extends BasesView implements HoverParent {
     this.renderer.setGraph(model, { animate: this.plugin.settings.animate });
     this.renderHint();
     if (this.searchEl.value) this.onSearch();
+    this.renderInfo();
     const hubs = model.nodes.filter(n => n.type === 'hub').length;
-    this.statusEl.setText(t('ui.status', { notes: model.noteCount, values: hubs }));
+    const links = model.edges.filter(e => e.type === 'link').length;
+    this.statusEl.setText(t(links ? 'ui.status.links' : 'ui.status', { notes: model.noteCount, values: hubs, links }));
   }
 
   /* ================================================================ chrome */
@@ -325,12 +371,14 @@ export class TagGraphView extends BasesView implements HoverParent {
   private updateInsets(): void {
     const r = this.root.getBoundingClientRect();
     const legend = this.legendOpen() && !this.root.hasClass('is-empty') ? this.legendEl.getBoundingClientRect() : null;
-    const panel = this.panelOpen && !this.narrow ? this.panelEl.getBoundingClientRect() : null;
+    const side = this.panelOpen ? this.panelEl : this.root.hasClass('has-info') ? this.infoEl : null;
+    const box = side ? side.getBoundingClientRect() : null;
     this.renderer.insets = {
       left: legend && legend.width ? legend.right - r.left + 8 : 0,
       top: 52,
-      right: panel && panel.width ? r.right - panel.left + 8 : 0,
-      bottom: 28,
+      right: box && box.width && !this.narrow ? r.right - box.left + 8 : 0,
+      // On a narrow pane the details panel is a sheet along the bottom.
+      bottom: box && box.height && this.narrow && side === this.infoEl ? r.bottom - box.top + 8 : 28,
     };
   }
 
@@ -364,7 +412,8 @@ export class TagGraphView extends BasesView implements HoverParent {
     } else {
       this.panelEl.empty();
     }
-    this.updateInsets();
+    // The panel and the details share the right-hand column; the panel wins while open.
+    this.renderInfo();
   }
 
   private renderPanel(): void {
@@ -508,6 +557,556 @@ export class TagGraphView extends BasesView implements HoverParent {
   private onSearch(): void {
     const n = this.renderer.setSearch(this.searchEl.value);
     this.searchCount.setText(this.searchEl.value.trim() ? t('ui.matches', { n }) : '');
+    this.resultIndex = -1;
+    this.renderResults();
+  }
+
+  /* ================================================================ search results */
+
+  /** Values before notes, names that start with the query before names that contain it, then by size. */
+  private findNodes(q: string): GNode[] {
+    const s = q.trim().toLowerCase();
+    if (!s || !this.model) return [];
+    const scored: { g: GNode; score: number }[] = [];
+    for (const g of this.model.nodes) {
+      if (g.type === 'subhub') continue;
+      const label = g.label.toLowerCase().replace(/^#/, '');
+      const at = label.indexOf(s.replace(/^#/, ''));
+      const inPath = at < 0 && (g.path || '').toLowerCase().includes(s);
+      if (at < 0 && !inPath) continue;
+      scored.push({ g, score: (g.type === 'hub' ? 0 : 1000) + (at === 0 ? 0 : inPath ? 600 : 300) - Math.min(g.count, 299) });
+    }
+    scored.sort((a, b) => a.score - b.score || a.g.label.localeCompare(b.g.label));
+    return scored.slice(0, 8).map(x => x.g);
+  }
+
+  private renderResults(): void {
+    const el = this.resultsEl;
+    el.empty();
+    // The view's own document: in a pop-out window that is not the main one.
+    this.results = this.searchEl.ownerDocument.activeElement === this.searchEl ? this.findNodes(this.searchEl.value) : [];
+    this.root.toggleClass('has-results', this.results.length > 0);
+    if (this.resultIndex >= this.results.length) this.resultIndex = this.results.length - 1;
+    const q = this.searchEl.value.trim().toLowerCase().replace(/^#/, '');
+    this.results.forEach((g, i) => {
+      const row = el.createDiv({ cls: 'tag-graph-result', attr: { role: 'option', 'aria-selected': String(i === this.resultIndex) } });
+      row.toggleClass('is-active', i === this.resultIndex);
+      this.nodeDot(row, g);
+      const text = row.createDiv({ cls: 'tag-graph-result-text' });
+      // The part that matched, in bold.
+      const name = text.createDiv({ cls: 'tag-graph-result-name' });
+      const at = g.label.toLowerCase().indexOf(q);
+      if (q && at >= 0) {
+        name.appendText(g.label.slice(0, at));
+        name.createSpan({ cls: 'tag-graph-result-hit', text: g.label.slice(at, at + q.length) });
+        name.appendText(g.label.slice(at + q.length));
+      } else name.setText(g.label);
+      text.createDiv({ cls: 'tag-graph-result-sub', text: g.type === 'note' ? (g.folder || t('ui.root')) : this.spec(g.facet)?.label || '' });
+      if (g.type !== 'note') row.createSpan({ cls: 'tag-graph-result-count', text: String(g.count) });
+      // mousedown, not click: the input's blur would close the list first.
+      row.addEventListener('mousedown', ev => { ev.preventDefault(); this.choose(g); });
+      row.addEventListener('mouseenter', () => this.renderer.setPreview(g.id));
+      row.addEventListener('mouseleave', () => this.renderer.setPreview(null));
+    });
+  }
+
+  private searchKey(ev: KeyboardEvent): void {
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      if (!this.results.length) return;
+      ev.preventDefault();
+      const n = this.results.length;
+      this.resultIndex = ev.key === 'ArrowDown' ? (this.resultIndex + 1) % n : (this.resultIndex - 1 + n) % n;
+      this.renderResults();
+      this.renderer.setPreview(this.results[this.resultIndex].id);
+    } else if (ev.key === 'Enter') {
+      ev.preventDefault();
+      if (this.resultIndex >= 0 && this.results[this.resultIndex]) this.choose(this.results[this.resultIndex]);
+      else this.renderer.fitMatches();
+    } else if (ev.key === 'Escape') {
+      this.searchEl.value = '';
+      this.onSearch();
+      this.renderer.setPreview(null);
+      this.renderer.canvas.focus();
+    }
+  }
+
+  /** Go to a node: focus it, fly to it, and say what it is in the details panel. */
+  private choose(g: GNode): void {
+    this.searchEl.value = '';
+    this.onSearch();
+    this.renderer.setPreview(null);
+    this.focusNode(g.id);
+    this.renderer.canvas.focus({ preventScroll: true });
+  }
+
+  private focusNode(id: string, zoom = true): void {
+    this.renderer.setFocus(id);
+    this.infoAll = false;
+    this.setSpot(null, null);
+    this.renderLegend();
+    // The panel first, so the zoom knows how much room it leaves.
+    this.renderInfo();
+    if (zoom) this.renderer.zoomToId(id);
+    this.renderer.pulse(id);
+  }
+
+  private canvasKey(ev: KeyboardEvent): void {
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (ev.key === '/') { ev.preventDefault(); this.searchEl.focus(); }
+    else if (ev.key === 'i') this.toggleInfo();
+    else if (ev.key === 'f') this.renderer.fit();
+    else if (ev.key === '+' || ev.key === '=') this.renderer.zoomBy(1.25);
+    else if (ev.key === '-') this.renderer.zoomBy(0.8);
+    else if (ev.key.startsWith('Arrow')) { ev.preventDefault(); this.step(ev.key); }
+  }
+
+  /**
+   * Walk the graph from the keyboard: left and right go through the values,
+   * biggest first; up and down go through what the focused node is joined to.
+   * Each step focuses the node and shows its details, like a click.
+   */
+  private step(key: string): void {
+    const model = this.model;
+    if (!model) return;
+    const focus = this.renderer.focus;
+    let list: GNode[];
+    if (key === 'ArrowLeft' || key === 'ArrowRight' || !focus) {
+      list = model.nodes.filter(n => n.type === 'hub').sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    } else {
+      const around = (id: string) => {
+        const near = new Set<string>();
+        for (const e of model.edges) {
+          if (e.source === id) near.add(e.target);
+          else if (e.target === id) near.add(e.source);
+        }
+        return model.nodes.filter(n => near.has(n.id)).sort((a, b) => a.label.localeCompare(b.label));
+      };
+      // Among the siblings of the node the walk went down from, while the focus is still one of them.
+      const siblings = this.stepFrom ? around(this.stepFrom) : [];
+      if (siblings.some(n => n.id === focus)) list = siblings;
+      else { this.stepFrom = null; list = around(focus); }
+    }
+    if (!list.length) return;
+    const at = list.findIndex(n => n.id === focus);
+    const back = key === 'ArrowLeft' || key === 'ArrowUp';
+    const next = at < 0 ? (back ? list.length - 1 : 0) : (at + (back ? -1 : 1) + list.length) % list.length;
+    // Up and down remember where they came from, so the next press steps among its siblings.
+    if ((key === 'ArrowUp' || key === 'ArrowDown') && at < 0 && focus) this.stepFrom = focus;
+    if (key === 'ArrowLeft' || key === 'ArrowRight') this.stepFrom = null;
+    this.focusNode(list[next].id, false);
+  }
+
+  /* ================================================================ details panel */
+
+  private toggleInfo(): void {
+    if (this.root.hasClass('has-info')) {
+      this.infoOpen = false;
+      if (this.renderer.focus) { this.renderer.setFocus(null); this.renderLegend(); }
+      this.setSpot(null, null);
+    } else {
+      this.infoOpen = true;
+      if (this.panelOpen) { this.setPanel(false); return; }
+    }
+    this.renderInfo();
+  }
+
+  /** Light a group of notes from the details panel; the same key again turns it off. */
+  private setSpot(key: string | null, ids: string[] | null): void {
+    this.spotKey = key;
+    this.renderer.setSpotlight(key ? ids : null);
+  }
+
+  private renderInfo(): void {
+    const el = this.infoEl;
+    el.empty();
+    const model = this.model;
+    const focus = this.renderer.focus;
+    const node = focus && model ? model.nodes.find(n => n.id === focus) || null : null;
+    const show = !this.panelOpen && !!model && model.nodes.length > 0 && (!!node || this.infoOpen);
+    this.root.toggleClass('has-info', show);
+    this.infoBtn.toggleClass('is-active', show);
+    if (show) {
+      // A new subject slides in and its bars grow; a refresh of the same one stays put.
+      const subject = node ? node.id : 'overview';
+      const body = el.createDiv({ cls: 'tag-graph-info-body' });
+      const fresh = subject !== this.infoSubject;
+      body.toggleClass('is-enter', fresh);
+      this.infoSubject = subject;
+      this.barIndex = 0;
+      if (node && node.type === 'note') this.noteInfo(body, node);
+      else if (node) this.hubInfo(body, node);
+      else this.overviewInfo(body);
+      this.updateInsets();
+      // The panel must not hide what it describes.
+      if (fresh && node) this.renderer.ensureVisible(node.id);
+      return;
+    }
+    this.infoSubject = '';
+    this.updateInsets();
+  }
+
+  /** The panel's header: a kind line with a swatch, the name, and a close button. */
+  private infoHead(el: HTMLElement, kind: string, title: string, swatch: (parent: HTMLElement) => void): void {
+    const head = el.createDiv({ cls: 'tag-graph-info-head' });
+    const line = head.createDiv({ cls: 'tag-graph-info-kind' });
+    swatch(line);
+    line.createSpan({ text: kind });
+    this.button(head, 'x', t('panel.close'), () => {
+      this.infoOpen = false;
+      this.renderer.setFocus(null);
+      this.setSpot(null, null);
+      this.renderLegend();
+      this.renderInfo();
+    }).addClass('tag-graph-info-close');
+    el.createDiv({ cls: 'tag-graph-info-title', text: title });
+  }
+
+  private infoStats(el: HTMLElement, stats: { value: string; label: string }[]): void {
+    const row = el.createDiv({ cls: 'tag-graph-info-stats' });
+    for (const s of stats) {
+      const tile = row.createDiv({ cls: 'tag-graph-info-stat' });
+      tile.createDiv({ cls: 'tag-graph-info-stat-value', text: s.value });
+      tile.createDiv({ cls: 'tag-graph-info-stat-label', text: s.label });
+    }
+  }
+
+  private infoSection(el: HTMLElement, title: string, count?: number): HTMLElement {
+    const sec = el.createDiv({ cls: 'tag-graph-info-section' });
+    const head = sec.createDiv({ cls: 'tag-graph-info-section-head' });
+    head.createSpan({ text: title });
+    if (count !== undefined) head.createSpan({ cls: 'tag-graph-info-section-count', text: String(count) });
+    return sec;
+  }
+
+  /** A row with a label, a bar for its share and a number. Returns the row for wiring. */
+  private barRow(parent: HTMLElement, label: string, value: number, max: number, color: string, dot?: (row: HTMLElement) => void, text?: string): HTMLElement {
+    const row = parent.createDiv({ cls: 'tag-graph-info-bar' });
+    if (dot) dot(row);
+    row.createSpan({ cls: 'tag-graph-info-bar-label', text: label });
+    const track = row.createSpan({ cls: 'tag-graph-info-bar-track' });
+    track.createSpan({ cls: 'tag-graph-info-bar-fill' }).setCssProps({
+      '--fg-color': color, '--fg-share': String(max ? value / max : 0), '--fg-delay': Math.min(12, this.barIndex++) * 30 + 'ms',
+    });
+    row.createSpan({ cls: 'tag-graph-info-bar-value', text: text ?? String(value) });
+    return row;
+  }
+
+  private nodeDot(parent: HTMLElement, g: GNode): void {
+    if (g.type === 'note') {
+      const c = g.colors[0];
+      parent.createSpan({ cls: 'tag-graph-swatch is-note' }).setCssProps({ '--fg-color': c !== undefined ? paletteColor(this.colorIndex.get(c) ?? 0) : 'var(--text-muted)' });
+    } else {
+      parent.createSpan({ cls: 'tag-graph-swatch is-hub' }).setCssProps({ '--fg-color': this.facetColor(g.facet || '') });
+    }
+  }
+
+  /** Where a row points on the graph, if it is drawn there. */
+  private drawn(id: string): boolean {
+    return !!this.model && this.model.nodes.some(n => n.id === id);
+  }
+
+  /** Hover previews the node; a click goes to it. Rows for nodes that are not drawn stay plain. */
+  private wireRow(row: HTMLElement, id: string, onClick?: (ev: MouseEvent) => void): void {
+    if (!onClick && !this.drawn(id)) { row.addClass('is-static'); return; }
+    row.addClass('is-link');
+    row.addEventListener('mouseenter', () => this.renderer.setPreview(id));
+    row.addEventListener('mouseleave', () => this.renderer.setPreview(null));
+    row.addEventListener('click', ev => { this.renderer.setPreview(null); if (onClick) onClick(ev); else this.focusNode(id); });
+  }
+
+  private infoButtons(el: HTMLElement, items: { icon: string; text: string; run: () => void; cta?: boolean }[]): void {
+    const row = el.createDiv({ cls: 'tag-graph-info-actions' });
+    for (const it of items) {
+      const b = row.createEl('button', { cls: it.cta ? 'mod-cta' : '' });
+      setIcon(b.createSpan({ cls: 'tag-graph-info-action-icon' }), it.icon);
+      b.createSpan({ text: it.text });
+      b.addEventListener('click', it.run);
+    }
+  }
+
+  private noteRow(parent: HTMLElement, n: InsightNote, extra?: string): void {
+    const row = parent.createDiv({ cls: 'tag-graph-info-note' });
+    const g = this.model?.nodes.find(x => x.id === noteId(n.path));
+    if (g) this.nodeDot(row, g);
+    else row.createSpan({ cls: 'tag-graph-swatch is-note' }).setCssProps({ '--fg-color': 'var(--text-faint)' });
+    row.createSpan({ cls: 'tag-graph-info-note-name', text: n.name });
+    row.createSpan({ cls: 'tag-graph-info-note-sub', text: extra ?? (n.folder || t('ui.root')) });
+    this.wireRow(row, noteId(n.path), ev => {
+      const file = this.notes.get(n.path)?.file;
+      if (file) void this.plugin.app.workspace.getLeaf(Keymap.isModEvent(ev) ? 'tab' : false).openFile(file);
+    });
+  }
+
+  /** A value: how much it is used, where, what it comes with, which notes, and what might be the same value. */
+  private hubInfo(el: HTMLElement, g: GNode): void {
+    const f = this.spec(g.facet);
+    const v = this.valueOfHub(g);
+    if (!f || !v || !this.model) return;
+    const color = this.facetColor(f.id);
+    const title = g.type === 'subhub' ? g.label + ' · ' + (g.subFolder || t('ui.root')) : g.label;
+    this.infoHead(el, f.label, title, line => line.createSpan({ cls: 'tag-graph-swatch is-hub' }).setCssProps({ '--fg-color': color }));
+
+    // A sub-hub speaks for its folder only.
+    const scope = g.type === 'subhub' ? this.rows.filter(n => n.folder === (g.subFolder || '')) : this.rows;
+    const vi = valueInsight(scope, f.id, v.key, Date.now());
+    const members = vi.notes;
+    const total = this.model.noteCount || 1;
+    const share = Math.round(members.length / total * 100);
+    const stats = [
+      { value: String(members.length), label: count(members.length, 'info.note', 'info.notes') },
+      { value: (share < 1 && members.length ? '<1' : String(share)) + '%', label: t('info.ofBase') },
+    ];
+    // A sub-hub is one folder's share of the value; the value's whole spread is on its parent.
+    if (f.kind !== 'folder' && g.type === 'hub') stats.push({ value: String(vi.folders.length), label: count(vi.folders.length, 'info.folder', 'info.folders') });
+    this.infoStats(el, stats);
+    const meter = el.createDiv({ cls: 'tag-graph-info-meter' });
+    meter.createSpan({ cls: 'tag-graph-info-bar-fill' }).setCssProps({ '--fg-color': color, '--fg-share': String(members.length / total) });
+    // Is it still in use? When it was last touched, and how much of it lately.
+    if (vi.latest) {
+      const when = el.createDiv({ cls: 'tag-graph-info-when' });
+      when.createSpan({ text: t('info.lastEdited', { when: moment(vi.latest.mtime).fromNow() }) + ' · ' });
+      const link = when.createSpan({ cls: 'tag-graph-info-when-note', text: vi.latest.name });
+      this.wireRow(link, noteId(vi.latest.path));
+      when.createDiv({ cls: 'tag-graph-info-when-sub', text: t('info.recent', { n: vi.recent, total: members.length }) });
+    }
+
+    /* where it is used */
+    if (f.kind !== 'folder' && vi.folders.length > 1 && g.type !== 'subhub') {
+      const sec = this.infoSection(el, t('info.where'));
+      const top = vi.folders[0].count;
+      for (const c of vi.folders.slice(0, 5)) {
+        const ids = vi.notes.filter(n => n.folder === c.key).map(n => noteId(n.path));
+        const row = this.barRow(sec, c.key || t('ui.root'), c.count, top, color);
+        row.addClass('is-link');
+        row.addEventListener('mouseenter', () => this.renderer.setSpotlight(ids));
+        row.addEventListener('mouseleave', () => this.renderer.setSpotlight(null));
+      }
+      if (vi.folders.length > 5) sec.createDiv({ cls: 'tag-graph-info-more', text: t('info.andMore', { n: vi.folders.length - 5 }) });
+    }
+
+    /* what it comes with */
+    const together = vi.together.filter(x => !(x.facet === f.id && x.key === v.key)).slice(0, 6);
+    if (together.length) {
+      const sec = this.infoSection(el, t('info.together'));
+      for (const x of together) {
+        const id = hubId(x.facet, x.key);
+        const label = this.values.get(hubKey(x.facet, x.key))?.label || x.label;
+        const row = this.barRow(sec, label, x.count, members.length || 1, this.facetColor(x.facet),
+          r => r.createSpan({ cls: 'tag-graph-swatch is-hub' }).setCssProps({ '--fg-color': this.facetColor(x.facet) }));
+        row.setAttr('aria-label', t('info.togetherTip', { n: x.count, value: label }));
+        this.wireRow(row, id);
+      }
+    }
+
+    /* its notes */
+    const sec = this.infoSection(el, t('info.notesList'), members.length);
+    // Name order finds a note; recent order shows what is happening with the value now.
+    const sorter = sec.querySelector('.tag-graph-info-section-head')!.createDiv({ cls: 'tag-graph-info-sort' });
+    for (const mode of ['name', 'recent'] as const) {
+      const b = sorter.createSpan({ cls: 'tag-graph-info-sort-item', text: t(mode === 'name' ? 'info.sortName' : 'info.sortRecent') });
+      b.toggleClass('is-active', this.infoSort === mode);
+      b.addEventListener('click', () => { this.infoSort = mode; this.renderInfo(); });
+    }
+    if (this.infoSort === 'recent') members.sort((a, b) => b.mtime - a.mtime);
+    const list = sec.createDiv({ cls: 'tag-graph-info-notes' });
+    const limit = this.infoAll ? members.length : 6;
+    // Beside each note: its folder when the value spans folders, else what else it is tagged with.
+    const oneFolder = new Set(members.map(n => n.folder)).size <= 1;
+    const others = (n: InsightNote) => {
+      const out: string[] = [];
+      for (const ff of this.facets) for (const x of n.values[ff.id] || []) if (!(ff.id === f.id && x.key === v.key)) out.push(x.label);
+      return out.slice(0, 2).join(' ');
+    };
+    for (const n of members.slice(0, limit)) {
+      this.noteRow(list, n, this.infoSort === 'recent' && n.mtime ? moment(n.mtime).fromNow() : oneFolder ? others(n) : undefined);
+    }
+    if (members.length > limit) {
+      const more = sec.createDiv({ cls: 'tag-graph-info-more is-link', text: t('ui.more', { n: members.length - limit }) });
+      more.addEventListener('click', () => { this.infoAll = true; this.renderInfo(); });
+    }
+
+    /* the same value, written another way */
+    const editable = f.kind !== 'readonly' && f.kind !== 'folder';
+    if (editable) {
+      const lf = this.model.legend.find(x => x.facet.id === f.id);
+      const pairs = lf ? nearDuplicates(lf.values.map(x => ({ key: x.valueKey, label: x.label, count: x.count })))
+        .filter(p => p.from.key === v.key || p.into.key === v.key) : [];
+      if (pairs.length) {
+        const dsec = this.infoSection(el, t('info.lookalike'));
+        for (const p of pairs.slice(0, 3)) this.duplicateRow(dsec, f, p.from, p.into);
+      }
+    }
+
+    /* what can be done with it */
+    const actions: { icon: string; text: string; run: () => void }[] = [];
+    if (editable) {
+      actions.push({ icon: 'pencil', text: t('info.rename'), run: () => this.rename(f, v) });
+      actions.push({ icon: 'file-plus', text: t('info.newNote'), run: () => { void this.newNoteWith(f, v); } });
+    }
+    actions.push({ icon: 'eye-off', text: t('info.hide'), run: () => { this.renderer.setFocus(null); this.toggleHidden(hubKey(f.id, v.key)); } });
+    this.infoButtons(el, actions);
+  }
+
+  /** "#recipes (2) → #recipe (6)" with a button that merges them. */
+  private duplicateRow(parent: HTMLElement, f: FacetSpec, from: { key: string; label: string; count: number }, into: { key: string; label: string; count: number }): void {
+    const row = parent.createDiv({ cls: 'tag-graph-info-dup' });
+    const names = row.createDiv({ cls: 'tag-graph-info-dup-names' });
+    const name = (x: { key: string; label: string; count: number }) => {
+      const s = names.createSpan({ cls: 'tag-graph-info-dup-name' });
+      s.createSpan({ text: x.label });
+      s.createSpan({ cls: 'tag-graph-info-dup-count', text: String(x.count) });
+      const id = hubId(f.id, x.key);
+      if (this.drawn(id)) {
+        s.addClass('is-link');
+        s.addEventListener('mouseenter', () => this.renderer.setPreview(id));
+        s.addEventListener('mouseleave', () => this.renderer.setPreview(null));
+      }
+    };
+    name(from);
+    setIcon(names.createSpan({ cls: 'tag-graph-info-dup-arrow' }), 'arrow-right');
+    name(into);
+    const b = row.createEl('button', { text: t('info.merge') });
+    b.addEventListener('click', () => {
+      const a = this.values.get(hubKey(f.id, from.key)), z = this.values.get(hubKey(f.id, into.key));
+      if (a && z) void this.replaceValue(f, a, z, true);
+    });
+  }
+
+  /** A note: where it is, its values, its links, and the notes most like it. */
+  private noteInfo(el: HTMLElement, g: GNode): void {
+    const row = this.rows.find(n => n.path === g.path);
+    if (!row) return;
+    this.infoHead(el, g.folder || t('ui.root'), g.label, line => this.nodeDot(line, g));
+    if (row.mtime) el.createDiv({ cls: 'tag-graph-info-when', text: t('info.edited', { when: moment(row.mtime).fromNow() }) });
+    const ls = this.linkStats.get(g.id) || { out: [], in: [] };
+    let valueCount = 0;
+    for (const f of this.facets) valueCount += (row.values[f.id] || []).length;
+    this.infoStats(el, [
+      { value: String(valueCount), label: count(valueCount, 'info.value', 'info.values') },
+      { value: String(ls.out.length), label: count(ls.out.length, 'info.linkOut', 'info.linksOut') },
+      { value: String(ls.in.length), label: count(ls.in.length, 'info.linkIn', 'info.linksIn') },
+    ]);
+
+    /* values, by property */
+    for (const f of this.facets) {
+      const vals = row.values[f.id] || [];
+      if (!vals.length) continue;
+      const sec = this.infoSection(el, f.label);
+      const chips = sec.createDiv({ cls: 'tag-graph-info-chips' });
+      for (const v of vals) {
+        const c = chips.createSpan({ cls: 'tag-graph-chip', text: v.label });
+        c.setCssProps({ '--fg-color': this.facetColor(f.id) });
+        const id = v.notePath && this.drawn(noteId(v.notePath)) ? noteId(v.notePath) : hubId(f.id, v.key);
+        this.wireRow(c, id);
+      }
+    }
+
+    /* links */
+    const byId = (id: string) => this.rows.find(n => noteId(n.path) === id);
+    const linkList = (title: string, ids: string[], arrow: string) => {
+      if (!ids.length) return;
+      const sec = this.infoSection(el, title, ids.length);
+      const list = sec.createDiv({ cls: 'tag-graph-info-notes' });
+      for (const id of ids.slice(0, 6)) { const n = byId(id); if (n) this.noteRow(list, n, arrow); }
+    };
+    linkList(t('info.linksOutList'), ls.out, '→');
+    linkList(t('info.linksInList'), ls.in, '←');
+
+    /* most alike */
+    const alike = similarNotes(this.rows, row.path, 5);
+    if (alike.length) {
+      const sec = this.infoSection(el, t('info.alike'));
+      const list = sec.createDiv({ cls: 'tag-graph-info-notes' });
+      for (const a of alike) this.noteRow(list, a.note, a.shared.slice(0, 2).join(' '));
+    }
+
+    const file = this.notes.get(row.path)?.file;
+    if (file) {
+      this.infoButtons(el, [
+        { icon: 'file', text: t('menu.open'), run: () => this.openNode(g, false), cta: true },
+        { icon: 'file-plus', text: t('menu.openTab'), run: () => this.openNode(g, true) },
+      ]);
+    }
+  }
+
+  /** The whole base: size, how well each property covers it, what is most used, and what needs tidying. */
+  private overviewInfo(el: HTMLElement): void {
+    const model = this.model;
+    if (!model) return;
+    this.infoHead(el, t('info.overviewKind'), t('info.overview'), line => setIcon(line.createSpan({ cls: 'tag-graph-info-kind-icon' }), 'layout-dashboard'));
+    const hubs = model.nodes.filter(n => n.type === 'hub');
+    const links = model.edges.filter(e => e.type === 'link').length;
+    this.infoStats(el, [
+      { value: String(model.noteCount), label: count(model.noteCount, 'info.note', 'info.notes') },
+      { value: String(hubs.length), label: count(hubs.length, 'info.value', 'info.values') },
+      { value: String(links), label: count(links, 'info.link', 'info.links') },
+    ]);
+
+    /* coverage: how many notes have each property, and a way to find the rest */
+    const facets = model.legend.filter(lf => !lf.hidden && lf.facet.kind !== 'folder');
+    if (facets.length) {
+      const sec = this.infoSection(el, t('info.coverage'));
+      for (const lf of facets) {
+        const gaps = missing(this.rows, lf.facet.id);
+        const have = model.noteCount - gaps.length;
+        const color = this.facetColor(lf.facet.id);
+        const row = this.barRow(sec, lf.facet.label, have, model.noteCount, color,
+          r => r.createSpan({ cls: 'tag-graph-swatch is-hub' }).setCssProps({ '--fg-color': color }),
+          Math.round(have / Math.max(1, model.noteCount) * 100) + '%');
+        row.setAttr('aria-label', t('info.coverageTip', { n: have, total: model.noteCount }));
+        if (gaps.length) this.spotRow(sec, 'missing:' + lf.facet.id, t(gaps.length === 1 ? 'info.without1' : 'info.without', { n: gaps.length, facet: lf.facet.label }), gaps.map(n => noteId(n.path)));
+      }
+    }
+
+    /* most used */
+    const top = hubs.slice().sort((a, b) => b.count - a.count).slice(0, 6);
+    if (top.length) {
+      const sec = this.infoSection(el, t('info.top'));
+      for (const g of top) {
+        const row = this.barRow(sec, g.label, g.count, top[0].count, this.facetColor(g.facet || ''), r => this.nodeDot(r, g));
+        this.wireRow(row, g.id);
+      }
+    }
+
+    /* needs tidying: look-alike values, rare values, notes with nothing */
+    const tidy: (() => void)[] = [];
+    const sec = el.createDiv();
+    const dupFacets = model.legend.filter(lf => !lf.hidden && (lf.facet.kind === 'tags' || lf.facet.kind === 'text' || lf.facet.kind === 'link'));
+    const dups = dupFacets.flatMap(lf => nearDuplicates(lf.values.map(x => ({ key: x.valueKey, label: x.label, count: x.count })), 4).map(p => ({ lf, p })));
+    if (dups.length) tidy.push(() => {
+      const d = this.infoSection(sec, t('info.lookalikes'), dups.length);
+      for (const { lf, p } of dups.slice(0, 4)) this.duplicateRow(d, lf.facet, p.from, p.into);
+    });
+    const min = this.num('minCount', 2);
+    const rare = model.legend.reduce((s, lf) => s + (lf.hidden ? 0 : lf.values.filter(v => v.belowMin).length), 0);
+    const lonely = model.nodes.filter(n => n.type === 'note' && n.count === 0).map(n => n.id);
+    if (rare || lonely.length) tidy.push(() => {
+      const d = this.infoSection(sec, t('info.tidy'));
+      if (rare) {
+        const row = d.createDiv({ cls: 'tag-graph-info-spot' });
+        row.createSpan({ cls: 'tag-graph-info-spot-text', text: t('ui.belowMin', { n: rare, min }) });
+        const b = row.createEl('button', { text: t('info.showRare') });
+        b.addEventListener('click', () => { this.config.set('minCount', 1); this.rebuild(); });
+      }
+      if (lonely.length) this.spotRow(d, 'lonely', t(lonely.length === 1 ? 'info.lonely1' : 'info.lonely', { n: lonely.length }), lonely);
+    });
+    for (const add of tidy) add();
+    if (!tidy.length) sec.createDiv({ cls: 'tag-graph-info-ok', text: t('info.allTidy') });
+  }
+
+  /** "5 notes without tags  [Show]": the button lights them on the graph and fits the view to them. */
+  private spotRow(parent: HTMLElement, key: string, text: string, ids: string[]): void {
+    const row = parent.createDiv({ cls: 'tag-graph-info-spot' });
+    row.createSpan({ cls: 'tag-graph-info-spot-text', text });
+    const on = this.spotKey === key;
+    const drawnIds = ids.filter(id => this.drawn(id));
+    if (!drawnIds.length) return;
+    const b = row.createEl('button', { text: on ? t('info.hideSpot') : t('info.showSpot'), cls: on ? 'mod-cta' : '' });
+    b.addEventListener('click', () => {
+      if (this.spotKey === key) this.setSpot(null, null);
+      else { this.setSpot(key, drawnIds); this.renderer.fitIds(drawnIds); }
+      this.renderInfo();
+    });
   }
 
   private readTheme(): void {
@@ -589,17 +1188,15 @@ export class TagGraphView extends BasesView implements HoverParent {
         row.addEventListener('click', ev => {
           if ((ev.target as HTMLElement).closest('.tag-graph-eye')) return;
           if (v.hidden) return;
-          this.renderer.setFocus(focus === target ? null : target);
-          this.renderLegend();
+          if (focus === target) { this.renderer.setFocus(null); this.renderLegend(); this.renderInfo(); }
+          else this.focusNode(target, false);
         });
         // Hovering a row previews its notes on the graph; double-clicking zooms to them.
         row.addEventListener('mouseenter', () => { if (!v.hidden) this.renderer.setPreview(target); });
         row.addEventListener('mouseleave', () => this.renderer.setPreview(null));
         row.addEventListener('dblclick', ev => {
           if (v.hidden || (ev.target as HTMLElement).closest('.tag-graph-eye')) return;
-          this.renderer.setFocus(target);
-          this.renderer.zoomToId(target);
-          this.renderLegend();
+          this.focusNode(target);
         });
       }
       if (visible.length > LEGEND_ROWS) {
@@ -692,7 +1289,9 @@ export class TagGraphView extends BasesView implements HoverParent {
     el.empty();
     if (g.type === 'note') {
       el.createDiv({ cls: 'tag-graph-tip-title', text: g.label });
-      if (g.folder) el.createDiv({ cls: 'tag-graph-tip-sub', text: g.folder });
+      const file = g.path ? this.notes.get(g.path)?.file : undefined;
+      const edited = file ? ' · ' + t('info.edited', { when: moment(file.stat.mtime).fromNow() }) : '';
+      el.createDiv({ cls: 'tag-graph-tip-sub', text: (g.folder || t('ui.root')) + edited });
       const meta = g.path ? this.notes.get(g.path) : undefined;
       if (meta) {
         const chips = el.createDiv({ cls: 'tag-graph-tip-chips' });
@@ -700,16 +1299,30 @@ export class TagGraphView extends BasesView implements HoverParent {
         for (const f of this.facets) {
           for (const v of meta.values[f.id] || []) {
             if (n++ >= 10) break;
-            const c = chips.createSpan({ cls: 'tag-graph-chip', text: f.kind === 'tags' ? v.label : v.label });
+            const c = chips.createSpan({ cls: 'tag-graph-chip', text: v.label });
             c.setCssProps({ '--fg-color': this.facetColor(f.id) });
           }
         }
       }
+      const ls = this.linkStats.get(g.id);
+      if (ls && (ls.out.length || ls.in.length)) el.createDiv({ cls: 'tag-graph-tip-sub tag-graph-tip-links', text: t('tip.links', {
+        out: ls.out.length, in: ls.in.length,
+        outLabel: count(ls.out.length, 'info.linkOut', 'info.linksOut'), inLabel: count(ls.in.length, 'info.linkIn', 'info.linksIn'),
+      }) });
     } else {
       const f = this.facets.find(x => x.id === g.facet);
       el.createDiv({ cls: 'tag-graph-tip-title', text: g.label });
       const where = g.type === 'subhub' ? ' · ' + (g.subFolder ? g.subFolder : '/') : '';
       el.createDiv({ cls: 'tag-graph-tip-sub', text: (f ? f.label : '') + where + ' · ' + t('ui.notes', { n: g.count }) });
+      const v = this.valueOfHub(g);
+      if (f && v && this.model) {
+        const pct = Math.round(g.count / Math.max(1, this.model.noteCount) * 100);
+        const meter = el.createDiv({ cls: 'tag-graph-tip-meter' });
+        meter.createSpan({ cls: 'tag-graph-info-bar-fill' }).setCssProps({ '--fg-color': this.facetColor(f.id), '--fg-share': String(g.count / Math.max(1, this.model.noteCount)) });
+        el.createDiv({ cls: 'tag-graph-tip-sub', text: t('tip.share', { pct }) });
+        const top = valueInsight(this.rows, f.id, v.key).together.slice(0, 3).map(x => this.values.get(hubKey(x.facet, x.key))?.label || x.label);
+        if (top.length) el.createDiv({ cls: 'tag-graph-tip-sub', text: t('tip.with', { values: top.join(', ') }) });
+      }
     }
     // What a click does, for as long as the editing hint is shown. Touch has its own gestures.
     if (mouse && this.plugin.settings.showHints) {
@@ -885,6 +1498,7 @@ export class TagGraphView extends BasesView implements HoverParent {
       if (!file) return;
       menu.addItem(i => i.setSection('open').setTitle(t('menu.open')).setIcon('file').onClick(() => this.openNode(g, false)));
       menu.addItem(i => i.setSection('open').setTitle(t('menu.openTab')).setIcon('file-plus').onClick(() => this.openNode(g, true)));
+      menu.addItem(i => i.setSection('open').setTitle(t('ui.details')).setIcon('info').onClick(() => this.focusNode(g.id, false)));
       const meta = this.notes.get(file.path);
       for (const f of this.facets) {
         if (f.kind === 'readonly' || f.kind === 'folder') continue;
@@ -903,7 +1517,9 @@ export class TagGraphView extends BasesView implements HoverParent {
     if (!f || !v) return;
     const focused = this.renderer.focus === g.id;
     menu.addItem(i => i.setTitle(focused ? t('menu.unfocus') : t('menu.focus')).setIcon('focus')
-      .onClick(() => { this.renderer.setFocus(focused ? null : g.id); this.renderLegend(); }));
+      .onClick(() => {
+        if (focused) { this.renderer.setFocus(null); this.renderLegend(); this.renderInfo(); } else this.focusNode(g.id, false);
+      }));
     if (f.kind !== 'readonly' && f.kind !== 'folder') {
       menu.addItem(i => i.setTitle(t('menu.rename')).setIcon('pencil').onClick(() => this.rename(f, v)));
       menu.addItem(i => i.setTitle(t('menu.newNote')).setIcon('file-plus').onClick(() => { void this.newNoteWith(f, v); }));
@@ -937,6 +1553,11 @@ export class TagGraphView extends BasesView implements HoverParent {
       else fmAdd(fm, name, written, f.list, () => false);
     });
   }
+}
+
+/** A tile caption that agrees with its number: "1 note", "2 notes". */
+function count(n: number, one: Parameters<typeof t>[0], many: Parameters<typeof t>[0]): string {
+  return t(n === 1 ? one : many);
 }
 
 /* ==================================================================== modals */

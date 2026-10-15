@@ -22,6 +22,16 @@ export interface SimNode extends SimulationNodeDatum {
   /** Eased highlight state, 0..1: how far it is dimmed, and how far it is lit as a neighbour. */
   dim: number;
   lit: number;
+  /** Eased size multiplier: hovered nodes and drop targets swell a little. */
+  grow: number;
+  /** When it started to appear (0: it is simply there), and over how long. */
+  born: number;
+  bornMs: number;
+  /** A highlight reaches this node at this time, so a focus spreads outwards. */
+  waveAt: number;
+  /** How far it has appeared this frame: scale (may overshoot) and opacity. */
+  as: number;
+  aa: number;
 }
 interface SimEdge extends SimulationLinkDatum<SimNode> {
   e: GEdge;
@@ -83,6 +93,21 @@ const LONG_PRESS_MS = 550;
 const FADE_MS = 70;
 /** How far a dimmed node and a dimmed edge fade. */
 const DIM_NODE = 0.86, DIM_EDGE = 0.94;
+/** Opening bloom: hubs first, notes after, spreading out from the middle. */
+const INTRO_MS = 480, INTRO_SPREAD_MS = 420;
+/** A node that arrives after an edit pops in; one that leaves shrinks away. */
+const POP_MS = 360, GHOST_MS = 260;
+/** A focus spreads at this many screen pixels per millisecond, and reaches everything within this time. */
+const WAVE_SPEED = 2.2, WAVE_MAX_MS = 180;
+const RIPPLE_MS = 700;
+
+/** Overshoots a little before settling, so a node landing reads as a landing. */
+function easeOutBack(p: number): number {
+  const c = 1.7, q = p - 1;
+  return 1 + (c + 1) * q * q * q + c * q * q;
+}
+
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 function hash(s: string): number {
   let h = 2166136261;
@@ -132,7 +157,15 @@ export class Renderer {
   /** A node highlighted from outside the canvas, e.g. while its legend row is hovered. */
   private previewId: string | null = null;
   private matches: Set<string> | null = null;
+  /** Nodes lit from outside as a group, e.g. the untagged notes the details panel points at. */
+  private spotlight: Set<string> | null = null;
   private fadeAt = 0;
+  /** The highlight centre the current wave started from. */
+  private waveCenter: string | null = null;
+  /** Nodes that left with the last data change, shrinking away where they were. */
+  private ghosts: { n: SimNode; t0: number }[] = [];
+  private ripples: { x: number; y: number; r: number; color: string; t0: number }[] = [];
+  private badgeAt = 0;
 
   private pointers = new Map<number, { x: number; y: number }>();
   private down: { id: number; x: number; y: number; node: SimNode | null; moved: boolean; button: number; mod: boolean } | null = null;
@@ -194,13 +227,20 @@ export class Renderer {
     }
     this.signature = sig;
     for (const n of this.nodes) if (n.x !== undefined && n.y !== undefined) this.known.set(n.id, { x: n.x, y: n.y });
+    const intro = this.nodes.length === 0;
 
     // Nodes that stay keep their highlight state, so a redraw mid-fade does not flash.
     const nodes: SimNode[] = model.nodes.map(g => {
       const old = this.byId.get(g.id);
-      return { id: g.id, g, r: this.radius(g), dim: old ? old.dim : 0, lit: old ? old.lit : 0 };
+      return old
+        ? { id: g.id, g, r: this.radius(g), dim: old.dim, lit: old.lit, grow: old.grow, born: old.born, bornMs: old.bornMs, waveAt: 0, as: old.as, aa: old.aa }
+        : { id: g.id, g, r: this.radius(g), dim: 0, lit: 0, grow: 1, born: -1, bornMs: 0, waveAt: 0, as: 1, aa: 1 };
     });
     const byId = new Map(nodes.map(n => [n.id, n]));
+    if (this.motion()) {
+      const now = performance.now();
+      for (const n of this.nodes) if (!byId.has(n.id) && n.x !== undefined) this.ghosts.push({ n, t0: now });
+    }
     const edges: SimEdge[] = [];
     const adj = new Map<string, Set<string>>();
     for (const n of nodes) adj.set(n.id, new Set());
@@ -218,6 +258,55 @@ export class Renderer {
 
     const fresh = this.place();
     this.buildSim(fresh);
+    // What an edit added pops in where it was placed; the first picture blooms.
+    const now = performance.now(), pop = !intro && this.motion();
+    for (const n of nodes) if (n.born < 0) { n.born = pop ? now + hash(n.id) % 90 : 0; n.bornMs = POP_MS; }
+    if (intro) this.bloom();
+    this.dirty = true;
+    this.loop();
+  }
+
+  /** Motion on, and the reader has not asked their system for less of it. */
+  private motion(): boolean {
+    return this.animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  /**
+   * The opening: hubs grow in first, then notes, spreading out from the middle
+   * of the picture — so the eye learns where the hubs are before the notes arrive.
+   */
+  private bloom(): void {
+    if (!this.motion()) return;
+    let cx = 0, cy = 0, c = 0;
+    for (const n of this.nodes) if (n.x !== undefined && n.y !== undefined) { cx += n.x; cy += n.y; c++; }
+    if (!c) return;
+    cx /= c; cy /= c;
+    let far = 1;
+    for (const n of this.nodes) far = Math.max(far, Math.hypot(n.x! - cx, n.y! - cy));
+    const now = performance.now() + 40;
+    for (const n of this.nodes) {
+      const d = Math.hypot(n.x! - cx, n.y! - cy) / far;
+      const hubLike = n.g.type !== 'note';
+      n.born = now + (hubLike ? d * INTRO_SPREAD_MS * 0.45 : 120 + d * INTRO_SPREAD_MS);
+      n.bornMs = hubLike ? INTRO_MS + 80 : INTRO_MS;
+    }
+  }
+
+  /** Set how far a node has appeared by now. Returns true while it is still appearing. */
+  private appear(n: SimNode, now: number): boolean {
+    if (!n.born) { n.as = 1; n.aa = 1; return false; }
+    const p = clamp01((now - n.born) / n.bornMs);
+    if (p >= 1) { n.born = 0; n.as = 1; n.aa = 1; return false; }
+    n.as = Math.max(0, easeOutBack(p)); n.aa = clamp01(p * 2.5);
+    return true;
+  }
+
+  /** A ring that spreads from a node: what just changed. */
+  pulse(id: string): void {
+    const n = this.byId.get(id);
+    if (!n || n.x === undefined || n.y === undefined || !this.motion()) return;
+    const color = n.g.type === 'note' ? this.theme.accent : this.host.facetColor(n.g.facet!);
+    this.ripples.push({ x: n.x, y: n.y, r: n.r, color, t0: performance.now() });
     this.dirty = true;
     this.loop();
   }
@@ -343,6 +432,7 @@ export class Renderer {
     this.frozen = false;
     this.place();
     this.buildSim(this.nodes.length);
+    this.bloom();
     this.frozen = was;
     this.fitNow(null, true);
   }
@@ -381,6 +471,57 @@ export class Renderer {
 
   fitMatches(): void {
     if (this.matches && this.matches.size) this.fitNow(this.matches, true);
+  }
+
+  /**
+   * If a node is off screen or under an overlay (the details panel opening
+   * next to it, say), glide it into the open part of the view. Zoom stays.
+   */
+  ensureVisible(id: string): void {
+    const n = this.byId.get(id);
+    if (!n || n.x === undefined || n.y === undefined || this.w <= 1) return;
+    const ins = this.w - this.insets.left - this.insets.right > 320 ? this.insets : { left: 0, top: 0, right: 0, bottom: 0 };
+    const [tx, ty] = this.viewAnim ? [this.viewAnim.to[0], this.viewAnim.to[1]] : [this.tx, this.ty];
+    const k = this.viewAnim ? this.viewAnim.to[2] : this.k;
+    // The node and its neighbours, on screen as they will be.
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const m of [n, ...[...this.adj.get(id) || []].map(i => this.byId.get(i)!)]) {
+      if (m.x === undefined || m.y === undefined) continue;
+      const sx = m.x * k + tx, sy = m.y * k + ty, r = m.r * k + 16;
+      x0 = Math.min(x0, sx - r); x1 = Math.max(x1, sx + r); y0 = Math.min(y0, sy - r); y1 = Math.max(y1, sy + r + 14);
+    }
+    const fx0 = ins.left + 8, fx1 = this.w - ins.right - 8, fy0 = ins.top, fy1 = this.h - ins.bottom;
+    // Per axis: if the group fits, the least move that brings it all in; if not, centre the node.
+    const shift = (a0: number, a1: number, f0: number, f1: number, at: number): number => {
+      if (a1 - a0 <= f1 - f0) return a0 < f0 ? f0 - a0 : a1 > f1 ? f1 - a1 : 0;
+      return (f0 + f1) / 2 - at;
+    };
+    const dx = shift(x0, x1, fx0, fx1, n.x * k + tx), dy = shift(y0, y1, fy0, fy1, n.y * k + ty);
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return;
+    const to: [number, number, number] = [tx + dx, ty + dy, k];
+    if (this.motion()) this.viewAnim = { from: [this.tx, this.ty, this.k], to, t0: performance.now(), ms: 360 };
+    else { [this.tx, this.ty, this.k] = to; this.viewAnim = null; }
+    this.dirty = true;
+    this.loop();
+  }
+
+  /** Fit the view to a group of nodes. */
+  fitIds(ids: Iterable<string>): void {
+    const s = new Set(ids);
+    if (s.size) this.fitNow(s, true);
+  }
+
+  /** Light a group of nodes, dimming the rest, until cleared with null. */
+  setSpotlight(ids: Iterable<string> | null): void {
+    const next = ids ? new Set([...ids].filter(id => this.byId.has(id))) : null;
+    this.spotlight = next && next.size ? next : null;
+    this.dirty = true;
+    this.loop();
+  }
+
+  /** Zoom out or in around the middle of the view. */
+  zoomBy(f: number): void {
+    this.zoomAt(this.w / 2, this.h / 2, this.k * f);
   }
 
   /** Highlight a node as if it were hovered, e.g. while its legend row is. */
@@ -427,7 +568,8 @@ export class Renderer {
       if (this.dragging && this.dropTarget) all.add(this.dropTarget.id);
       return { all, core };
     }
-    return this.matches ? { all: this.matches, core: null } : null;
+    const group = this.spotlight || this.matches;
+    return group ? { all: group, core: null } : null;
   }
 
   /** Under focus only the spokes from the centre are lit, not edges between its neighbours. */
@@ -446,25 +588,51 @@ export class Renderer {
     const a = 1 - Math.exp(-dt / FADE_MS);
     const h = this.highlight();
     const hl = h ? h.all : null, core = h ? h.core : null;
+    this.startWave(now);
     let busy = false;
-    const ease = (cur: number, to: number): number => {
+    const ease = (cur: number, to: number, at = 0): number => {
       if (cur === to) return to;
+      // The wave has not reached it yet: hold, but keep the frames coming.
+      if (now < at) { busy = true; return cur; }
       const v = cur + (to - cur) * a;
       if (Math.abs(to - v) < 0.01) return to;
       busy = true;
       return v;
     };
+    const over = this.dragging && this.dropTarget && this.verdict?.ok ? this.dropTarget : null;
+    const pointed = this.hovered || (this.previewId ? this.byId.get(this.previewId) : null) || null;
     for (const n of this.nodes) {
       const on = !!hl && hl.has(n.id);
-      n.dim = ease(n.dim, hl && !on ? 1 : 0);
-      n.lit = ease(n.lit, on && core ? 1 : 0);
+      n.dim = ease(n.dim, hl && !on ? 1 : 0, n.waveAt);
+      n.lit = ease(n.lit, on && core ? 1 : 0, n.waveAt);
+      n.grow = ease(n.grow, n === over ? 1.22 : n === pointed || n === this.dragging ? 1.12 : 1);
     }
     for (const e of this.edges) {
       const on = !!hl && this.edgeOn(e, hl, core);
-      e.dim = ease(e.dim, hl && !on ? 1 : 0);
-      e.lit = ease(e.lit, on ? 1 : 0);
+      const at = Math.max(e.source.waveAt, e.target.waveAt);
+      e.dim = ease(e.dim, hl && !on ? 1 : 0, at);
+      e.lit = ease(e.lit, on ? 1 : 0, at);
     }
     return busy;
+  }
+
+  /**
+   * When the focus moves, its highlight spreads from the new centre outwards
+   * instead of switching everywhere at once, so the eye follows it. Hover
+   * spreads faster, as it follows the hand; dragging and clearing are immediate.
+   */
+  private startWave(now: number): void {
+    const center = this.centerId();
+    if (center === this.waveCenter) return;
+    this.waveCenter = center;
+    const c = center && !this.dragging ? this.byId.get(center) : null;
+    const wave = !!c && c.x !== undefined && this.motion();
+    const max = this.hovered || this.previewId ? WAVE_MAX_MS * 0.6 : WAVE_MAX_MS;
+    for (const n of this.nodes) {
+      n.waveAt = wave && n.x !== undefined
+        ? now + Math.min(max, Math.hypot(n.x - c!.x!, n.y! - c!.y!) * this.k / WAVE_SPEED)
+        : 0;
+    }
   }
 
   /* ============================================================ view */
@@ -678,6 +846,7 @@ export class Renderer {
       if (target !== this.dropTarget) {
         this.dropTarget = target;
         this.verdict = target ? this.host.dropVerdict(n.g, target.g) : null;
+        this.badgeAt = performance.now();
         this.holdTarget(target);
       }
       this.edgePan(sx, sy);
@@ -718,7 +887,7 @@ export class Renderer {
     if (this.dragging) {
       const n = this.dragging, target = this.dropTarget, verdict = this.verdict;
       this.endDrag();
-      if (target && verdict && verdict.ok) this.host.drop(n.g, target.g);
+      if (target && verdict && verdict.ok) { this.pulse(target.id); this.host.drop(n.g, target.g); }
       return;
     }
     if (d.moved) return;
@@ -746,6 +915,7 @@ export class Renderer {
       return;
     }
     this.focusId = this.focusId === n.id ? null : n.id;
+    if (this.focusId) this.pulse(n.id);
     this.host.focusChanged(this.focusId);
     this.dirty = true;
     this.loop();
@@ -844,7 +1014,7 @@ export class Renderer {
         if (this.stepFade(performance.now())) again = true;
         else this.fadeAt = 0;
         this.dirty = false;
-        this.draw();
+        if (this.draw()) again = true;
         if (again) this.dirty = true;
       }
       if (again) this.loop();
@@ -853,8 +1023,11 @@ export class Renderer {
 
   /* ============================================================ drawing */
 
-  private draw(): void {
+  /** Draw a frame. Returns true while something on it is still moving by itself. */
+  private draw(): boolean {
     const ctx = this.ctx, th = this.theme, k = this.k;
+    const now = performance.now();
+    let busy = false;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = th.bg;
     ctx.fillRect(0, 0, this.w, this.h);
@@ -864,6 +1037,17 @@ export class Renderer {
     const hl = h ? h.all : null;
     const px = 1 / k;
     const lw = this.gs.linkWidth;
+    for (const n of this.nodes) if (this.appear(n, now)) busy = true;
+
+    /* ---- the soft disc behind a focused node, so the eye finds the centre ---- */
+    const focused = this.focusId ? this.byId.get(this.focusId) : null;
+    if (focused && focused.x !== undefined && focused.y !== undefined && !this.dragging) {
+      const color = focused.g.type === 'note' ? th.accent : this.host.facetColor(focused.g.facet!);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.1 * focused.aa;
+      ctx.beginPath(); ctx.arc(focused.x, focused.y, focused.r * focused.grow + 14 * px, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
 
     /* ---- edges, batched by style; eased alphas are rounded so batches stay few ---- */
     const batches = new Map<string, { color: string; width: number; dash: number[]; alpha: number; segs: SimEdge[]; arrows: SimEdge[] }>();
@@ -872,11 +1056,12 @@ export class Renderer {
     const arrowLen = 4 + 2 * Math.sqrt(lw);
     const arrows = this.gs.arrows && arrowLen * k >= 3;
     for (const e of this.edges) {
-      const keep = 1 - DIM_EDGE * e.dim, l = e.lit;
+      const keep = (1 - DIM_EDGE * e.dim) * Math.min(e.source.aa, e.target.aa), l = e.lit;
+      if (keep < 0.01) continue;
       let key: string, color: string, width: number, alpha: number, dash: number[] = [];
       if (e.e.type === 'member') {
         key = 'm' + e.e.facet; color = this.host.facetColor(e.e.facet!);
-        width = 1.1 + 0.5 * l; alpha = (0.45 + 0.4 * l) * keep;
+        width = 1.1 + 0.7 * l; alpha = (0.45 + 0.45 * l) * keep;
       } else if (e.e.type === 'split') {
         key = 's' + e.e.facet; color = this.host.facetColor(e.e.facet!);
         width = 1.4; alpha = 0.6 * keep; dash = [4 * px, 3 * px];
@@ -915,6 +1100,24 @@ export class Renderer {
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
 
+    /* ---- what the drop would connect, drawn before it happens ---- */
+    if (this.dragging && this.dropTarget && this.verdict?.ok) {
+      if (this.drawDropPreview(this.dragging, this.dropTarget, px, now)) busy = true;
+    }
+
+    /* ---- nodes that just left, shrinking away ---- */
+    if (this.ghosts.length) {
+      this.ghosts = this.ghosts.filter(gh => now - gh.t0 < GHOST_MS);
+      for (const gh of this.ghosts) {
+        const p = (now - gh.t0) / GHOST_MS;
+        ctx.globalAlpha = (1 - p) * 0.8;
+        const r = gh.n.r * (1 - p * p);
+        if (gh.n.g.type === 'note') this.drawNote(gh.n, px, r); else this.drawHub(gh.n, px, r);
+      }
+      ctx.globalAlpha = 1;
+      if (this.ghosts.length) busy = true;
+    }
+
     /* ---- nodes: notes, then sub-hubs, then hubs on top ---- */
     const order: SimNode[] = [];
     for (const n of this.nodes) if (n.g.type === 'note') order.push(n);
@@ -924,14 +1127,18 @@ export class Renderer {
     if (this.dragging) { order.splice(order.indexOf(this.dragging), 1); order.push(this.dragging); }
     for (const n of order) {
       if (n.x === undefined || n.y === undefined) continue;
-      ctx.globalAlpha = 1 - DIM_NODE * n.dim;
-      if (n.g.type === 'note') this.drawNote(n, px);
-      else this.drawHub(n, px);
+      if (n.aa <= 0) continue;
+      const r = n.r * n.as * n.grow;
+      ctx.globalAlpha = (1 - DIM_NODE * n.dim) * n.aa;
+      // Carried over a target: see-through, so what it would land on still reads.
+      if (n === this.dragging && this.dropTarget) ctx.globalAlpha *= 0.55;
+      if (n.g.type === 'note') this.drawNote(n, px, r);
+      else this.drawHub(n, px, r);
       if (this.matches && this.matches.has(n.id)) {
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = n.aa;
         ctx.strokeStyle = th.accent;
         ctx.lineWidth = 2.5 * px;
-        ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 4 * px, 0, TAU); ctx.stroke();
+        ctx.beginPath(); ctx.arc(n.x, n.y, r + 4 * px, 0, TAU); ctx.stroke();
       }
     }
     ctx.globalAlpha = 1;
@@ -942,15 +1149,63 @@ export class Renderer {
       ctx.strokeStyle = this.verdict.ok ? th.accent : th.faint;
       ctx.lineWidth = 3 * px;
       ctx.setLineDash(this.verdict.ok ? [] : [4 * px, 4 * px]);
-      ctx.beginPath(); ctx.arc(t.x!, t.y!, t.r + 6 * px, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(t.x!, t.y!, t.r * t.grow + 6 * px, 0, TAU); ctx.stroke();
       ctx.setLineDash([]);
+    }
+
+    /* ---- ripples: what just changed ---- */
+    if (this.ripples.length) {
+      this.ripples = this.ripples.filter(rp => now - rp.t0 < RIPPLE_MS);
+      for (const rp of this.ripples) {
+        const p = (now - rp.t0) / RIPPLE_MS;
+        const e = 1 - Math.pow(1 - p, 3);
+        ctx.strokeStyle = rp.color;
+        ctx.globalAlpha = 0.55 * (1 - p);
+        ctx.lineWidth = (2.5 - 1.5 * p) * px;
+        ctx.beginPath(); ctx.arc(rp.x, rp.y, rp.r + (8 + 46 * e) * px, 0, TAU); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      if (this.ripples.length) busy = true;
     }
 
     /* ---- labels, in screen space so they stay one size ---- */
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.drawLabels(hl);
 
-    if (this.dragging && this.verdict) this.drawBadge(this.verdict);
+    if (this.dragging && this.verdict && this.drawBadge(this.verdict, now)) busy = true;
+    return busy;
+  }
+
+  /**
+   * Dashed lines for the links a drop would make: a note to the value it is
+   * over, or — for a merge or a folder move — every note of the carried hub to
+   * the hub it is over. The dashes march towards the target.
+   */
+  private drawDropPreview(from: SimNode, to: SimNode, px: number, now: number): boolean {
+    const ctx = this.ctx;
+    const color = to.g.type === 'note' || !to.g.facet ? this.theme.accent : this.host.facetColor(to.g.facet);
+    const moving = this.motion();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.6 * px;
+    ctx.setLineDash([5 * px, 4 * px]);
+    ctx.lineDashOffset = moving ? -((now / 40) % 9) * px : 0;
+    ctx.beginPath();
+    if (from.g.type === 'note') {
+      ctx.globalAlpha = 0.9;
+      ctx.moveTo(from.x!, from.y!); ctx.lineTo(to.x!, to.y!);
+    } else {
+      ctx.globalAlpha = 0.55;
+      for (const id of this.adj.get(from.id) || []) {
+        const m = this.byId.get(id);
+        if (!m || m.g.type !== 'note' || m.x === undefined || m.y === undefined) continue;
+        ctx.moveTo(m.x, m.y); ctx.lineTo(to.x!, to.y!);
+      }
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
+    ctx.globalAlpha = 1;
+    return moving;
   }
 
   /** Add an arrowhead to the current path, its tip on the rim of `to`. */
@@ -968,9 +1223,10 @@ export class Renderer {
     ctx.closePath();
   }
 
-  private drawNote(n: SimNode, px: number): void {
+  private drawNote(n: SimNode, px: number, r: number): void {
     const ctx = this.ctx, th = this.theme;
-    const x = n.x!, y = n.y!, r = n.r;
+    const x = n.x!, y = n.y!;
+    if (r <= 0) return;
     const cols = n.g.colors;
     const screenR = r * this.k;
     if (cols.length === 0) {
@@ -1000,23 +1256,26 @@ export class Renderer {
     }
   }
 
-  private drawHub(n: SimNode, px: number): void {
+  private drawHub(n: SimNode, px: number, r: number): void {
     const ctx = this.ctx;
-    const x = n.x!, y = n.y!, r = n.r;
+    const x = n.x!, y = n.y!;
+    if (r <= 0) return;
     const color = this.host.facetColor(n.g.facet!);
     const ga = ctx.globalAlpha;
+    const lit = this.focusId === n.id || this.hovered === n;
     ctx.fillStyle = this.theme.bg;
     ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
     ctx.fillStyle = color;
-    ctx.globalAlpha = ga * (n.g.type === 'hub' ? 0.22 : 0.12);
+    // A focused hub fills in more, so it reads as selected from across the graph.
+    ctx.globalAlpha = ga * (n.g.type === 'hub' ? (lit ? 0.34 : 0.22) : 0.12);
     ctx.fill();
     ctx.globalAlpha = ga;
     ctx.strokeStyle = color;
-    ctx.lineWidth = (n.g.type === 'hub' ? 2.2 : 1.5) * px;
+    ctx.lineWidth = (n.g.type === 'hub' ? (lit ? 2.8 : 2.2) : 1.5) * px;
     if (n.g.type === 'subhub') ctx.setLineDash([3 * px, 2 * px]);
     ctx.stroke();
     ctx.setLineDash([]);
-    if (this.focusId === n.id || this.hovered === n) {
+    if (lit) {
       ctx.lineWidth = 1.5 * px;
       ctx.strokeStyle = this.theme.text;
       ctx.beginPath(); ctx.arc(x, y, r + 3 * px, 0, TAU); ctx.stroke();
@@ -1035,11 +1294,12 @@ export class Renderer {
    * Labels in priority order — the node under the pointer, highlighted and
    * matching nodes, hubs by size, then notes — each skipped if it would overlap
    * one already drawn. Dense areas stay readable instead of turning into ink.
+   * Hub names sit on a plate, so they read over the lines that run into them.
    */
   private drawLabels(hl: Set<string> | null): void {
     const th = this.theme, k = this.k;
     const center = this.centerId();
-    type Item = { n: SimNode; text: string; font: string; color: string; rank: number; alpha: number };
+    type Item = { n: SimNode; text: string; font: string; color: string; rank: number; alpha: number; plate: boolean };
     const items: Item[] = [];
     // Text fade threshold: each step right shows names from further out.
     const reach = Math.pow(2, this.gs.textFade * 0.6);
@@ -1052,20 +1312,20 @@ export class Renderer {
     for (const n of hubs) {
       const inHl = !!hl && hl.has(n.id);
       if (!inHl && hubsSeen++ >= hubCap) continue;
-      const alpha = 1 - n.dim;
+      const alpha = (1 - n.dim) * n.aa;
       if (alpha < 0.03) continue;
       const text = n.g.type === 'subhub' ? n.g.label + ' · ' + folderLabel(n.g.subFolder || '') : n.g.label;
       const isHub = n.g.type === 'hub';
       items.push({ n, text, font: `${isHub ? 600 : 500} ${isHub ? 12 : 11}px ${th.font}`, color: isHub ? th.text : th.muted,
-        rank: n.id === center ? 0 : isHub ? 2 : 3, alpha });
+        rank: n.id === center ? 0 : isHub ? 2 : 3, alpha, plate: isHub });
     }
     for (const n of this.nodes) {
       if (n.g.type !== 'note') continue;
       const special = this.hovered === n || this.focusId === n.id || this.dragging === n || (!!this.matches && this.matches.has(n.id));
-      const alpha = special ? 1 : Math.max(n.lit, noteFade * (1 - n.dim));
+      const alpha = (special ? 1 : Math.max(n.lit, noteFade * (1 - n.dim))) * n.aa;
       if (alpha < 0.03) continue;
       items.push({ n, text: n.g.label, font: `${special ? 600 : 400} 11px ${th.font}`, color: special ? th.text : th.muted,
-        rank: n.id === center || this.dragging === n ? 0 : special ? 1 : 4, alpha });
+        rank: n.id === center || this.dragging === n ? 0 : special ? 1 : 4, alpha, plate: special });
     }
     // Labels on their way out give way to the ones coming in.
     const order = (it: Item) => it.rank + (it.alpha < 0.35 ? 10 : 0);
@@ -1076,22 +1336,50 @@ export class Renderer {
     ctx.textBaseline = 'top';
     ctx.lineJoin = 'round';
     const placed: [number, number, number, number][] = [];
+    // Visible hubs are obstacles too: a name written across another hub reads as that hub's.
+    const discs: { n: SimNode; x: number; y: number; r: number }[] = [];
+    for (const n of this.nodes) {
+      if (n.g.type === 'note' || n.x === undefined || n.y === undefined || n.dim > 0.9 || n.aa < 0.1) continue;
+      const x = n.x * k + this.tx, y = n.y * k + this.ty;
+      if (x > -60 && x < this.w + 60 && y > -60 && y < this.h + 60) discs.push({ n, x, y, r: n.r * n.grow * k + 2 });
+    }
+    const hitsLabel = (b: number[]) => placed.some(p => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1]);
+    const hitsHub = (b: number[], own: SimNode) => discs.some(d => {
+      if (d.n === own) return false;
+      const cx = Math.max(b[0], Math.min(d.x, b[2])), cy = Math.max(b[1], Math.min(d.y, b[3]));
+      return (cx - d.x) * (cx - d.x) + (cy - d.y) * (cy - d.y) < d.r * d.r;
+    });
     let drawn = 0;
     for (const it of items) {
       if (drawn > 500) break;
       const n = it.n;
-      const sx = n.x! * k + this.tx, sy = (n.y! + n.r) * k + this.ty + 3;
-      if (sx < -200 || sx > this.w + 200 || sy < -40 || sy > this.h + 40) continue;
+      const sx = n.x! * k + this.tx;
+      const below = (n.y! + n.r * n.grow) * k + this.ty + 4, above = (n.y! - n.r * n.grow) * k + this.ty - 17;
+      if (sx < -200 || sx > this.w + 200 || below < -40 || below > this.h + 40) continue;
       const s = it.text.length > 40 ? it.text.slice(0, 38) + '…' : it.text;
       ctx.font = it.font;
       const w = ctx.measureText(s).width, h = 13;
-      const box: [number, number, number, number] = [sx - w / 2 - 2, sy - 1, sx + w / 2 + 2, sy + h];
-      if (it.rank > 0 && placed.some(p => box[0] < p[2] && box[2] > p[0] && box[1] < p[3] && box[3] > p[1])) continue;
+      const boxAt = (y: number): [number, number, number, number] => [sx - w / 2 - 4, y - 2, sx + w / 2 + 4, y + h + 1];
+      // Below the node by default; above it when below would sit on another hub or label.
+      let sy = below, box = boxAt(below);
+      if (it.rank > 0 && (hitsLabel(box) || hitsHub(box, n))) {
+        const up = boxAt(above);
+        if (!hitsLabel(up) && !hitsHub(up, n)) { sy = above; box = up; }
+        // A note name that fits nowhere is left out; a hub keeps its place unless a label is already there.
+        else if (n.g.type === 'note' || hitsLabel(box)) continue;
+      }
       placed.push(box);
-      ctx.strokeStyle = th.bg;
-      ctx.lineWidth = 3;
-      ctx.globalAlpha = 0.9 * it.alpha;
-      ctx.strokeText(s, sx, sy);
+      if (it.plate) {
+        ctx.globalAlpha = 0.86 * it.alpha;
+        ctx.fillStyle = th.bg;
+        this.roundRect(box[0], box[1], box[2] - box[0], box[3] - box[1], 4);
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = th.bg;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.9 * it.alpha;
+        ctx.strokeText(s, sx, sy);
+      }
       ctx.globalAlpha = it.alpha;
       ctx.fillStyle = it.color;
       ctx.fillText(s, sx, sy);
@@ -1100,27 +1388,39 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
-  private drawBadge(v: DropVerdict): void {
-    const ctx = this.ctx, th = this.theme;
-    ctx.font = `600 12px ${th.font}`;
-    const w = ctx.measureText(v.text).width + 16;
-    let x = this.dragScreen.x + 14, y = this.dragScreen.y - 30;
-    if (x + w > this.w - 4) x = this.dragScreen.x - 14 - w;
-    if (y < 4) y = this.dragScreen.y + 18;
-    ctx.fillStyle = v.ok ? th.accent : th.bg;
-    ctx.strokeStyle = v.ok ? th.accent : th.faint;
-    ctx.lineWidth = 1;
-    const h = 22, r = 6;
+  private roundRect(x: number, y: number, w: number, h: number, r: number): void {
+    const ctx = this.ctx;
     ctx.beginPath();
     ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
     ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
     ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r);
     ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+
+  /** The note by the pointer saying what letting go will do. It slides in when the target changes. */
+  private drawBadge(v: DropVerdict, now: number): boolean {
+    const ctx = this.ctx, th = this.theme;
+    const p = this.motion() ? clamp01((now - this.badgeAt) / 140) : 1;
+    const e = 1 - Math.pow(1 - p, 3);
+    ctx.font = `600 12px ${th.font}`;
+    const w = ctx.measureText(v.text).width + 16;
+    let x = this.dragScreen.x + 14, y = this.dragScreen.y - 30 + (1 - e) * 6;
+    if (x + w > this.w - 4) x = this.dragScreen.x - 14 - w;
+    if (y < 4) y = this.dragScreen.y + 18;
+    ctx.globalAlpha = e;
+    ctx.fillStyle = v.ok ? th.accent : th.bg;
+    ctx.strokeStyle = v.ok ? th.accent : th.faint;
+    ctx.lineWidth = 1;
+    const h = 22;
+    this.roundRect(x, y, w, h, 6);
     ctx.fill(); ctx.stroke();
     ctx.fillStyle = v.ok ? th.accentText : th.muted;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(v.text, x + 8, y + h / 2 + 0.5);
+    ctx.globalAlpha = 1;
+    return p < 1;
   }
 
   /** Redraw after a theme change. */

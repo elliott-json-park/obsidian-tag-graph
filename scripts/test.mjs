@@ -29,6 +29,7 @@ function test(name, fn) {
 
 const M = await load('src/model.ts');
 const F = await load('src/frontmatter.ts');
+const I = await load('src/insights.ts');
 
 /* ---------------------------------------------------------------- fixtures */
 
@@ -170,6 +171,56 @@ test('folderMoveDest: a folder dropped on a folder goes inside it, never into it
   assert.deepEqual(M.folderMoveDest('Library/Books', 'Library'), { reason: 'same' });
   assert.deepEqual(M.folderMoveDest('Books', '/'), { reason: 'same' });
   assert.deepEqual(M.folderMoveDest('/', 'Library'), { reason: 'root' });
+});
+
+/* ---------------------------------------------------------------- insights */
+
+console.log('insights');
+
+const inote = (path, tags) => {
+  const i = path.lastIndexOf('/');
+  return { path, name: path.slice(i + 1).replace(/\.md$/, ''), folder: i < 0 ? '' : path.slice(0, i), values: { 'file.tags': tags.map(tv) }, mtime: 0 };
+};
+
+test('valueInsight: members, their folders, and the values they come with', () => {
+  const ns = [
+    inote('Tasks/b.md', ['task', 'urgent']), inote('Tasks/a.md', ['task', 'urgent', 'home']),
+    inote('Inbox/c.md', ['task']), inote('Inbox/d.md', ['idea']),
+  ];
+  const vi = I.valueInsight(ns, 'file.tags', 'task');
+  assert.deepEqual(vi.notes.map(n => n.name), ['a', 'b', 'c']);
+  assert.deepEqual(vi.folders, [{ key: 'Tasks', count: 2 }, { key: 'Inbox', count: 1 }]);
+  assert.deepEqual(vi.together.map(t => [t.label, t.count]), [['#urgent', 2], ['#home', 1]]);
+});
+
+test('valueInsight: the latest member and how many changed recently', () => {
+  const D = 86400000, now = 100 * D;
+  const ns = [inote('a.md', ['x']), inote('b.md', ['x']), inote('c.md', ['x']), inote('d.md', ['y'])];
+  ns[0].mtime = now - 2 * D; ns[1].mtime = now - 40 * D; ns[3].mtime = now;
+  const vi = I.valueInsight(ns, 'file.tags', 'x', now);
+  assert.equal(vi.latest.name, 'a');
+  assert.equal(vi.recent, 1);
+  assert.equal(I.valueInsight(ns, 'file.tags', 'x').recent, 0);
+});
+
+test('similarNotes weighs rare shared values above common ones, and missing finds untagged notes', () => {
+  const ns = [inote('a.md', ['task', 'homelab']), inote('b.md', ['task']), inote('c.md', ['task']), inote('d.md', ['task']),
+    inote('e.md', ['homelab']), inote('f.md', [])];
+  // e shares one rare value; b-d share one common one.
+  assert.deepEqual(I.similarNotes(ns, 'a.md', 2).map(s => [s.note.name, s.shared]), [['e', ['#homelab']], ['b', ['#task']]]);
+  const both = [inote('a.md', ['x', 'y']), inote('b.md', ['x', 'y']), inote('c.md', ['y'])];
+  assert.deepEqual(I.similarNotes(both, 'a.md')[0].shared, ['#x', '#y']);
+  assert.deepEqual(I.similarNotes(ns, 'f.md'), []);
+  assert.deepEqual(I.missing(ns, 'file.tags').map(n => n.name), ['f']);
+});
+
+test('nearDuplicates: plurals, separators and typos, but not short look-alikes', () => {
+  const v = (label, count) => ({ key: label.toLowerCase(), label, count });
+  const pairs = I.nearDuplicates([v('#recipe', 6), v('#recipes', 2), v('#to-read', 1), v('#toread', 3),
+    v('#game', 5), v('#gate', 1), v('#jounral', 1), v('#journal', 9), v('#boxes', 1), v('#box', 2), v('#study', 2), v('#studies', 1)]);
+  const names = pairs.map(p => p.from.label + '>' + p.into.label).sort();
+  assert.deepEqual(names, ['#boxes>#box', '#jounral>#journal', '#recipes>#recipe', '#studies>#study', '#to-read>#toread']);
+  assert.equal(I.looseForm('#Class'), 'class');
 });
 
 /* ---------------------------------------------------------------- frontmatter */
