@@ -11,7 +11,7 @@ import { Renderer, DropVerdict, GRAPH_DEFAULTS, GraphSettings } from './renderer
 import { Resolver, facetSpec } from './values';
 import { DuplicatePair, InsightNote, missing, nearDuplicates, similarNotes, valueInsight } from './insights';
 import { fmAdd, fmAddTag, validTag } from './frontmatter';
-import { ago, t } from './i18n';
+import { Key, ago, t } from './i18n';
 
 export const VIEW_TYPE = 'tag-graph';
 
@@ -123,6 +123,8 @@ export class TagGraphView extends BasesView implements HoverParent {
   private infoSort: 'name' | 'recent' = 'name';
   private results: GNode[] = [];
   private resultIndex = -1;
+  /** Toolbar buttons and the label each was given, to relabel them when the language changes. */
+  private toolbarLabels: [HTMLElement, Key][] = [];
 
   constructor(controller: QueryController, containerEl: HTMLElement, private plugin: TagGraphPlugin) {
     super(controller);
@@ -158,7 +160,7 @@ export class TagGraphView extends BasesView implements HoverParent {
     this.searchEl.addEventListener('keydown', ev => this.searchKey(ev));
     this.searchEl.addEventListener('focus', () => this.renderResults());
     this.searchEl.addEventListener('blur', () => window.setTimeout(() => this.root.removeClass('has-results'), 120));
-    this.button(bar, 'list', t('ui.legend'), () => {
+    const legendBtn = this.button(bar, 'list', t('ui.legend'), () => {
       if (this.narrow) {
         this.narrowLegend = !this.narrowLegend;
         // On a narrow pane the legend and the panel would cover each other.
@@ -167,9 +169,10 @@ export class TagGraphView extends BasesView implements HoverParent {
       this.applyLegend();
     });
     this.infoBtn = this.button(bar, 'info', t('ui.details'), () => this.toggleInfo());
-    this.button(bar, 'maximize', t('ui.fit'), () => this.renderer.fit());
+    const fitBtn = this.button(bar, 'maximize', t('ui.fit'), () => this.renderer.fit());
     this.freezeBtn = this.button(bar, 'snowflake', t('ui.freeze'), () => this.setFrozen(!this.renderer.frozen));
     this.panelBtn = this.button(bar, 'settings', t('ui.settings'), () => this.setPanel(!this.panelOpen));
+    this.toolbarLabels = [[legendBtn, 'ui.legend'], [this.infoBtn, 'ui.details'], [fitBtn, 'ui.fit'], [this.panelBtn, 'ui.settings']];
     this.panelEl = side.createDiv({ cls: 'tag-graph-panel' });
     this.panelEl.addEventListener('keydown', ev => {
       if (ev.key === 'Escape') { ev.stopPropagation(); this.setPanel(false); this.panelBtn.focus(); }
@@ -264,6 +267,15 @@ export class TagGraphView extends BasesView implements HoverParent {
 
   /** Redraw with current settings (called when plugin settings change). */
   refresh(): void {
+    this.rebuild();
+  }
+
+  /** The interface language changed: relabel what is drawn once, then redraw the rest. */
+  relabel(): void {
+    this.searchEl.setAttr('placeholder', t('ui.search'));
+    this.searchEl.setAttr('aria-label', t('ui.search'));
+    for (const [el, key] of this.toolbarLabels) el.setAttr('aria-label', t(key));
+    // The rest, including translated values such as "Vault root", is redrawn from scratch.
     this.rebuild();
   }
 

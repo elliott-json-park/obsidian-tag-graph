@@ -213,9 +213,12 @@ const en = {
   'set.motion.desc': 'Off: the graph is laid out before it is shown and then stays still.',
   'set.hints': 'Show the editing hint',
   'set.hints.desc': 'The line at the bottom of the graph that says what dragging does.',
+  'set.language': 'Language',
+  'set.language.desc': 'The language of the graph and these settings. Command names and the view’s name in the Bases menu change after Obsidian restarts.',
+  'set.language.auto': 'Follow Obsidian',
 };
 
-type Key = keyof typeof en;
+export type Key = keyof typeof en;
 
 const ko: Partial<Record<Key, string>> = {
   'view.name': '태그 그래프',
@@ -430,14 +433,262 @@ const ko: Partial<Record<Key, string>> = {
   'set.motion.desc': '끄면 그래프를 다 배치한 뒤에 보여 주고, 그 뒤로는 움직이지 않아요.',
   'set.hints': '편집 안내 보이기',
   'set.hints.desc': '그래프 아래에 끌어서 무엇을 할 수 있는지 알려 주는 줄이에요.',
+  'set.language': '언어',
+  'set.language.desc': '그래프와 이 설정의 언어예요. 명령 이름과 Bases 메뉴의 뷰 이름은 Obsidian을 다시 시작하면 바뀌어요.',
+  'set.language.auto': 'Obsidian 설정 따르기',
 };
 
+/** Simplified Chinese, complete: the type makes a missing key a build error. */
+const zh: Record<Key, string> = {
+  'view.name': '标签图谱',
+
+  'opt.facets': '中心节点属性',
+  'opt.facet': '属性 {n}',
+  'opt.none': '无',
+  'opt.minCount': '隐藏使用笔记少于此数的值',
+  'opt.split': '按文件夹拆分值',
+  'opt.folderTree': '将文件夹连到上级文件夹',
+  'opt.folderNames': '文件夹只显示名称，不显示路径',
+  'opt.colorBy': '笔记着色依据',
+  'opt.colorBy.placeholder': '分组，没有则按文件夹',
+  'opt.isolated': '显示没有连接的笔记',
+  'opt.linkProp': '笔记拖到笔记上时写入链接的属性',
+
+  'ui.search': '搜索笔记和值…',
+  'ui.fit': '适应视图',
+  'ui.freeze': '冻结布局',
+  'ui.unfreeze': '解冻布局',
+  'ui.relayout': '重新布局',
+  'ui.legend': '显示或隐藏图例',
+  'ui.links': '链接',
+  'ui.colors': '颜色',
+  'ui.colorFolder': '顶层文件夹',
+  'ui.root': '仓库根目录',
+  'facet.tags': '标签',
+  'facet.folder': '文件夹',
+  'ui.more': '再显示 {n} 个',
+  'ui.less': '收起',
+  'ui.belowMin': '{n} 个值的笔记少于 {min} 篇',
+  'ui.hide': '隐藏',
+  'ui.show': '显示',
+  'ui.notes': '{n} 篇笔记',
+  'ui.matches': '{n} 个匹配',
+  'ui.status': '{notes} 篇笔记 · {values} 个值',
+  'ui.empty.title': '暂时没有可绘制的内容',
+  'ui.empty.noNotes': '此 Base 没有返回任何笔记。放宽筛选条件后，笔记就会出现在这里。',
+  'ui.empty.noFacet': '请在视图选项的“中心节点属性”中选择一个属性。',
+  'ui.hint': '把笔记拖到值上即可添加 · 把值拖到另一个值上即可合并 · 点击值查看详情',
+  'ui.hint.dismiss': '知道了',
+  'ui.readonly': '{facet} 是计算得出的，不能在这里修改。',
+  'ui.settings': '图谱设置',
+  'ui.status.links': '{notes} 篇笔记 · {values} 个值 · {links} 条链接',
+  'ui.details': '详情',
+
+  'info.notes': '笔记',
+  'info.note': '笔记',
+  'info.folder': '文件夹',
+  'info.value': '值',
+  'info.link': '链接',
+  'info.linkOut': '出链',
+  'info.linkIn': '反向链接',
+  'info.without1': '1 篇笔记没有 {facet}',
+  'info.lonely1': '1 篇笔记没有任何连接',
+  'info.ofBase': '占此 Base',
+  'info.folders': '文件夹',
+  'info.values': '值',
+  'info.links': '链接',
+  'info.linksOut': '出链',
+  'info.linksIn': '反向链接',
+  'info.where': '使用位置',
+  'info.andMore': '以及另外 {n} 个文件夹',
+  'info.together': '常一起使用',
+  'info.togetherTip': '其中 {n} 篇笔记也有 {value}',
+  'info.notesList': '笔记',
+  'info.sortName': '名称',
+  'info.sortRecent': '最近',
+  'info.lastEdited': '最后编辑：{when}',
+  'info.edited': '{when}编辑',
+  'ago.now': '刚刚',
+  'ago.minute': '1 分钟前',
+  'ago.minutes': '{n} 分钟前',
+  'ago.hour': '1 小时前',
+  'ago.hours': '{n} 小时前',
+  'ago.day': '昨天',
+  'ago.days': '{n} 天前',
+  'ago.month': '1 个月前',
+  'ago.months': '{n} 个月前',
+  'ago.year': '1 年前',
+  'ago.years': '{n} 年前',
+  'info.recent': '{total} 篇中有 {n} 篇在最近 30 天内编辑过',
+  'info.lookalike': '可能是同一个值',
+  'info.lookalikes': '可能是同一个值',
+  'info.merge': '合并',
+  'info.rename': '重命名',
+  'info.newNote': '新建笔记',
+  'info.hide': '隐藏',
+  'info.linksOutList': '此笔记链接到',
+  'info.linksInList': '链接到此笔记的笔记',
+  'info.alike': '共同值最多的笔记',
+  'info.overviewKind': '概览',
+  'info.overview': '此 Base 一览',
+  'info.coverage': '覆盖率',
+  'info.coverageTip': '{total} 篇笔记中有 {n} 篇有此值',
+  'info.without': '{n} 篇笔记没有 {facet}',
+  'info.showSpot': '显示',
+  'info.hideSpot': '清除',
+  'info.top': '最常用',
+  'info.tidy': '已隐藏或孤立',
+  'info.showRare': '全部显示',
+  'info.lonely': '{n} 篇笔记没有任何连接',
+  'info.allTidy': '无需整理：没有相似的值、少用的值或孤立的笔记。',
+
+  'tip.links': '出链 {out} · 反向链接 {in}',
+  'tip.share': '占此 Base 的 {pct}%',
+  'tip.with': '常与 {values} 一起',
+
+  'panel.reset': '恢复默认值',
+  'panel.close': '关闭',
+  'panel.filter': '筛选',
+  'panel.display': '显示',
+  'panel.forces': '力度',
+  'panel.orphans': '孤立笔记',
+  'panel.arrows': '箭头',
+  'panel.textFade': '文字渐隐阈值',
+  'panel.nodeSize': '节点大小',
+  'panel.linkWidth': '连线粗细',
+  'panel.centerForce': '向心力',
+  'panel.repelForce': '排斥力',
+  'panel.linkForce': '连线拉力',
+  'panel.linkDistance': '连线长度',
+
+  'tip.note': '点击打开 · 拖到值上即可添加 · 按住 {keys} 拖到笔记上即可链接',
+  'tip.hub': '点击查看详情 · 双击放大',
+
+  'link.body': '笔记链接',
+  'link.heading': '标题链接',
+  'link.block': '块链接',
+  'link.property': '属性链接',
+  'link.embed': '嵌入',
+
+  'drop.add': '添加 {value}',
+  'drop.set': '将 {facet} 设为 {value}',
+  'drop.move': '移动到 {value}',
+  'drop.merge': '合并到 {value}',
+  'drop.link': '在 {prop} 中添加链接',
+  'drop.linkHold': '按住 {keys} 可在 {prop} 中添加链接',
+  'drop.already': '已有 {value}',
+  'drop.cannot': '不同属性的值不能合并',
+  'drop.folderInside': '文件夹不能移到它自己里面',
+
+  'menu.open': '打开',
+  'menu.openTab': '在新标签页中打开',
+  'menu.remove': '移除 {value}',
+  'menu.focus': '高亮它的笔记',
+  'menu.unfocus': '取消高亮',
+  'menu.rename': '重命名…',
+  'menu.newNote': '用此值新建笔记',
+  'menu.hide': '隐藏此值',
+  'menu.openNote': '打开笔记',
+  'menu.newNoteHere': '新建笔记',
+  'note.untitled': '未命名',
+  'menu.newNoteIn': '在此文件夹中新建笔记',
+  'menu.renameNote': '重命名笔记…',
+  'menu.renameFolder': '重命名文件夹…',
+  'menu.toRoot': '移动到仓库根目录',
+  'menu.removeAll': '从所有笔记中移除',
+  'menu.deleteNote': '删除笔记',
+  'menu.deleteFolder': '删除文件夹',
+
+  'modal.rename.title': '重命名 {value}',
+  'modal.rename.desc': '将修改 {n} 篇笔记中的这个值。此 Base 之外的笔记不受影响。',
+  'modal.rename.invalid': '标签不能包含空格或标点，也不能只有数字。',
+  'modal.confirm': '确认',
+  'modal.cancel': '取消',
+  'modal.merge.title': '将 {from} 合并到 {to}？',
+  'modal.merge.desc': '{n} 篇笔记中的 {from} 将替换为 {to}。此 Base 之外的笔记不受影响。',
+  'modal.move.title': '将 {note} 移动到 {folder}？',
+  'modal.move.desc': '文件会被移动，指向它的链接按你的设置更新。',
+  'modal.moveFolder.desc': '文件夹会连同其中的所有内容一起移动，包括此 Base 之外的笔记。链接按你的设置更新。',
+  'modal.renameFile.desc': '指向它的链接按你的设置更新。',
+  'modal.rename.badName': '名称不能包含以下字符：\\ / : * ? " < > | # ^ [ ]',
+  'modal.removeAll.title': '从 {n} 篇笔记中移除 {value}？',
+  'modal.removeAll.desc': '此 Base 中所有带有 {value} 的笔记都会去掉它。此 Base 之外的笔记不受影响。可以在通知中撤销。',
+  'modal.delete.title': '删除 {name}？',
+  'modal.deleteNote.desc': '笔记会按你的“已删除的文件”设置移入回收站。无法在这里撤销。',
+  'modal.deleteFolder.desc': '文件夹及其中的所有内容（{n} 个文件，包括此 Base 之外的文件）会按你的“已删除的文件”设置移入回收站。无法在这里撤销。',
+
+  'notice.added': '已为 {note} 添加 {value}',
+  'notice.set': '已将 {note} 的 {facet} 设为 {value}',
+  'notice.removed': '已从 {note} 移除 {value}',
+  'notice.renamed': '已在 {n} 篇笔记中将 {from} 重命名为 {to}',
+  'notice.merged': '已在 {n} 篇笔记中将 {from} 合并到 {to}',
+  'notice.moved': '已将 {note} 移动到 {folder}',
+  'notice.linked': '已从 {note} 链接到 {to}',
+  'notice.undo': '撤销',
+  'notice.undone': '已撤销',
+  'notice.cannotUndo': '未撤销：之后已有 {n} 个文件发生了变化',
+  'notice.nothingToUndo': '没有可撤销的操作',
+  'notice.failed': '无法修改 {note}：{error}',
+  'notice.skipped': '{n} 篇笔记在编辑过程中内容有变，已跳过',
+  'notice.exists': '{folder} 中已有同名文件',
+  'notice.removedAll': '已从 {n} 篇笔记中移除 {value}',
+  'notice.renamedFile': '已将 {from} 重命名为 {to}',
+  'notice.nameTaken': '该位置已有名为 {name} 的项目',
+  'notice.deleted': '已删除 {name}',
+
+  'cmd.undo': '撤销上一次编辑',
+  'cmd.create': '创建带标签图谱的 Base',
+  'cmd.created': '已创建 {path}',
+
+  'set.confirmBulk': '修改多篇笔记前确认',
+  'set.confirmBulk.desc': '合并或重命名会修改不止一篇笔记时，先询问。',
+  'set.confirmMoves': '移动文件前确认',
+  'set.confirmMoves.desc': '拖到文件夹上的笔记被移动之前，先询问。',
+  'set.moveFolders': '拖动以移动文件夹',
+  'set.moveFolders.desc': '把文件夹拖到另一个文件夹上，即可连同其中所有内容一起移过去。默认关闭，以免误移文件夹。',
+  'set.inlineTags': '同时修改正文中的标签',
+  'set.inlineTags.desc': '重命名、合并或移除标签时，除了 tags 属性，也修改正文中写的 #标签。',
+  'set.motion': '布局动画',
+  'set.motion.desc': '关闭后，图谱先完成布局再显示，之后保持静止。',
+  'set.hints': '显示编辑提示',
+  'set.hints.desc': '图谱底部说明拖动作用的那一行提示。',
+  'set.language': '语言',
+  'set.language.desc': '图谱和这些设置使用的语言。命令名称和 Bases 菜单中的视图名称在重启 Obsidian 后更新。',
+  'set.language.auto': '跟随 Obsidian',
+};
+
+export type Lang = 'en' | 'ko' | 'zh';
+/** What the language setting holds: a language, or `auto` to follow Obsidian. */
+export type LangChoice = 'auto' | Lang;
+export const LANG_CHOICES: readonly LangChoice[] = ['auto', 'en', 'ko', 'zh'];
+
+const tables: Record<Lang, Partial<Record<Key, string>>> = { en, ko, zh };
 let table: Partial<Record<Key, string>> = en;
 
-export function initI18n(): void {
-  let lang = 'en';
-  try { lang = getLanguage(); } catch { /* older app: stay in English */ }
-  table = lang === 'ko' ? ko : en;
+/** Obsidian's language code to ours: zh and zh-TW → zh, ko → ko, anything else → en. */
+export function langOf(code: string): Lang {
+  const c = code.toLowerCase();
+  if (c === 'zh' || c.startsWith('zh-')) return 'zh';
+  if (c === 'ko' || c.startsWith('ko-')) return 'ko';
+  return 'en';
+}
+
+export function isLangChoice(v: unknown): v is LangChoice {
+  return typeof v === 'string' && (LANG_CHOICES as readonly string[]).includes(v);
+}
+
+/** Set the language: the given one, or Obsidian's for `auto`. Safe to call again to switch. */
+export function initI18n(choice: LangChoice = 'auto'): void {
+  let code = 'en';
+  if (choice === 'auto') {
+    try { code = getLanguage(); } catch { /* older app: stay in English */ }
+  }
+  table = tables[choice === 'auto' ? langOf(code) : choice];
+}
+
+/** For the unit tests: every table, by language. */
+export function i18nTables(): Record<Lang, Partial<Record<Key, string>>> {
+  return tables;
 }
 
 export function t(key: Key, vars?: Record<string, string | number>): string {
@@ -447,7 +698,7 @@ export function t(key: Key, vars?: Record<string, string | number>): string {
 }
 
 /**
- * "3 days ago", in the app's language. Written out here rather than taken from
+ * "3 days ago", in the interface language. Written out here rather than taken from
  * moment, whose types the directory review does not have, so it reads as untyped.
  */
 export function ago(time: number, now = Date.now()): string {

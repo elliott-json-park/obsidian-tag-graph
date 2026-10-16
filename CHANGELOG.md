@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.5.0
+
+- **Simplified Chinese (中文)**: the whole interface — graph, legend, details
+  panel, menus, notices, settings and commands — is now in Chinese too, using
+  Obsidian's own terms (笔记, 标签, 属性, 仓库, 反向链接).
+- **Language setting**: *Follow Obsidian* (the default), English, 한국어 or
+  中文. Obsidian set to Chinese (simplified or traditional) picks Chinese. A
+  change applies to open graphs and to the settings at once; command names and
+  the view's name in the Bases menu follow after Obsidian restarts.
+- *Create a base with a tag graph* names the new base and its view in the
+  interface language.
+
 ## 1.4.0
 
 - **Folder trees** (#2): with the new view option *Link folders to their parent

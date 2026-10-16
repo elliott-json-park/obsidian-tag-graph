@@ -9,6 +9,8 @@ other still end up side by side when they share a tag, so a vault held together
 by tags and properties finally has a shape you can see. And the graph is not
 read-only: drop a note on a tag to tag it, drop one tag on another to merge them.
 
+[中文说明](#中文)
+
 ![Tag Graph: 55 notes drawn around 18 tag hubs, coloured by top-level folder, with the legend listing tags, link kinds and folders and a status line counting notes, values and links](docs/hero.png)
 
 ![Dragging a task onto the "done" hub: its connections stay highlighted, a badge says "Set status to done", and on release the note is changed and an Undo notice appears](docs/drag.gif)
@@ -183,6 +185,9 @@ The ↻ button puts every control back to its default.
 
 ### Settings
 
+- **Language** (Follow Obsidian) — English, 한국어 or 中文. Open graphs switch
+  at once; command names and the view's name in the Bases menu follow after
+  Obsidian restarts.
 - **Confirm before changing many notes** (on) — before a merge that touches more
   than one note.
 - **Confirm before moving files** (on) — before a drop on a folder moves a note
@@ -197,7 +202,8 @@ The ↻ button puts every control back to its default.
   then keeps it still.
 - **Show the editing hint** (on).
 
-The interface is in English and Korean, following Obsidian's language.
+The interface is in English, Korean and Simplified Chinese, following
+Obsidian's language unless you choose one under **Language**.
 
 ---
 
@@ -218,6 +224,19 @@ The interface is in English and Korean, following Obsidian's language.
 - Undo covers the last edit only.
 - Built for bases of up to a few thousand notes. On 3,000 notes the first layout
   takes about a quarter of a second.
+
+## 中文
+
+**Tag Graph** 是一个 Bases 视图：标签、文件夹和属性成为图谱中的中心节点，带有同一个标签的笔记会聚在一起，即使它们之间没有任何链接。图谱也不是只读的：把笔记拖到标签上就能加上标签，把一个标签拖到另一个标签上就能合并。
+
+- **拖动即编辑**：给笔记加标签或设置属性，合并、重命名标签，把笔记移到文件夹。最近一次修改可以撤销。
+- **详情面板**：点击标签，查看有多少笔记在用它、用在哪些文件夹、常和哪些值一起出现，以及可能重复的标签。
+- **整理**：隐藏少用的标签，按文件夹拆分标签，区分笔记、标题、块、属性链接和嵌入。
+- **由 Bases 的筛选决定画什么**：只看一个项目、一个文件夹或一个查询。
+- 界面支持 中文 · English · 한국어。默认跟随 Obsidian 的语言，也可以在 设置 → Tag Graph → 语言 中切换。
+- 不发出任何网络请求。桌面端和移动端都能用。
+
+安装：设置 → 第三方插件 → 浏览 → 搜索 “Tag Graph”，并开启核心插件 Bases。然后在命令面板中运行 “创建带标签图谱的 Base”。
 
 ## More from the same author
 

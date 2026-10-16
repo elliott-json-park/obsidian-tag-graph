@@ -1,7 +1,7 @@
 import { App, Notice, Plugin, PluginSettingTab, Setting, SettingDefinitionItem, TFile, normalizePath } from 'obsidian';
 import { TagGraphView, VIEW_TYPE, viewOptions } from './view';
 import { Actions } from './actions';
-import { initI18n, t } from './i18n';
+import { LangChoice, initI18n, isLangChoice, t } from './i18n';
 
 export interface TagGraphSettings {
   confirmBulk: boolean;
@@ -10,6 +10,8 @@ export interface TagGraphSettings {
   inlineTags: boolean;
   animate: boolean;
   showHints: boolean;
+  /** Interface language; `auto` follows Obsidian's. */
+  language: LangChoice;
 }
 
 const DEFAULTS: TagGraphSettings = {
@@ -19,14 +21,16 @@ const DEFAULTS: TagGraphSettings = {
   inlineTags: true,
   animate: true,
   showHints: true,
+  language: 'auto',
 };
 
-const STARTER_BASE = `filters:
+/** A new base with one graph view, named in the interface language (quoted, so any name is valid YAML). */
+const starterBase = (name: string) => `filters:
   and:
     - file.ext == "md"
 views:
   - type: ${VIEW_TYPE}
-    name: Tag graph
+    name: ${JSON.stringify(name)}
     facet1: file.tags
     minCount: 2
 `;
@@ -38,8 +42,9 @@ export default class TagGraphPlugin extends Plugin {
   readonly views = new Set<TagGraphView>();
 
   async onload(): Promise<void> {
-    initI18n();
+    // Settings first, so the chosen language names the view and the commands.
     await this.loadSettings();
+    initI18n(this.settings.language);
     this.actions = new Actions(this.app, () => this.settings);
 
     this.registerBasesView(VIEW_TYPE, {
@@ -70,9 +75,10 @@ export default class TagGraphPlugin extends Plugin {
   private async createBase(): Promise<void> {
     const active = this.app.workspace.getActiveFile();
     const dir = active?.parent && !active.parent.isRoot() ? active.parent.path + '/' : '';
-    let path = normalizePath(dir + 'Tag graph.base');
-    for (let i = 2; this.app.vault.getAbstractFileByPath(path); i++) path = normalizePath(`${dir}Tag graph ${i}.base`);
-    const file = await this.app.vault.create(path, STARTER_BASE);
+    const name = t('view.name');
+    let path = normalizePath(`${dir}${name}.base`);
+    for (let i = 2; this.app.vault.getAbstractFileByPath(path); i++) path = normalizePath(`${dir}${name} ${i}.base`);
+    const file = await this.app.vault.create(path, starterBase(name));
     new Notice(t('cmd.created', { path: file.path }));
     if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
   }
@@ -80,6 +86,13 @@ export default class TagGraphPlugin extends Plugin {
   async loadSettings(): Promise<void> {
     const saved = (await this.loadData()) as Partial<TagGraphSettings> | null;
     this.settings = Object.assign({}, DEFAULTS, saved);
+    if (!isLangChoice(this.settings.language)) this.settings.language = DEFAULTS.language;
+  }
+
+  /** Switch the interface language now. The view's name in the Bases menu and the command names keep theirs until a restart. */
+  setLanguage(choice: LangChoice): void {
+    initI18n(choice);
+    for (const view of this.views) view.relabel();
   }
 
   async saveSettings(): Promise<void> {
@@ -87,7 +100,12 @@ export default class TagGraphPlugin extends Plugin {
   }
 }
 
-type ToggleKey = keyof TagGraphSettings;
+type ToggleKey = Exclude<keyof TagGraphSettings, 'language'>;
+
+/** The language dropdown's choices, each language in its own name. */
+function languageOptions(): Record<LangChoice, string> {
+  return { auto: t('set.language.auto'), en: 'English', ko: '한국어', zh: '中文' };
+}
 
 /** Name and description of every toggle, shared by both ways of drawing the tab. */
 function toggles(): { key: ToggleKey; name: string; desc: string }[] {
@@ -108,15 +126,33 @@ class TagGraphSettingTab extends PluginSettingTab {
 
   /** 1.13+: declared settings, so they show up in Obsidian's settings search. */
   getSettingDefinitions(): SettingDefinitionItem[] {
-    return toggles().map(({ key, name, desc }) => ({ name, desc, control: { type: 'toggle' as const, key } }));
+    const items: SettingDefinitionItem[] = [{
+      name: t('set.language'), desc: t('set.language.desc'), aliases: ['language', 'English', '한국어', '中文'],
+      control: { type: 'dropdown', key: 'language', options: languageOptions(), defaultValue: DEFAULTS.language },
+    }];
+    for (const { key, name, desc } of toggles()) items.push({ name, desc, control: { type: 'toggle', key } });
+    return items;
   }
 
   getControlValue(key: string): unknown {
+    if (key === 'language') return this.plugin.settings.language;
     return this.plugin.settings[key as ToggleKey];
   }
 
   async setControlValue(key: string, value: unknown): Promise<void> {
-    await this.apply(key as ToggleKey, value === true);
+    if (key === 'language') await this.applyLanguage(value);
+    else await this.apply(key as ToggleKey, value === true);
+  }
+
+  private async applyLanguage(value: unknown): Promise<void> {
+    // Checked, not asserted: the value arrives as unknown.
+    if (!isLangChoice(value) || value === this.plugin.settings.language) return;
+    this.plugin.settings.language = value;
+    await this.plugin.saveSettings();
+    this.plugin.setLanguage(value);
+    // Redraw this tab in the new language: update() on 1.13+, by hand before.
+    if (typeof this.update === 'function') this.update();
+    else this.display();
   }
 
   private async apply(key: ToggleKey, value: boolean): Promise<void> {
@@ -129,6 +165,10 @@ class TagGraphSettingTab extends PluginSettingTab {
   display(): void {
     const el = this.containerEl;
     el.empty();
+    new Setting(el).setName(t('set.language')).setDesc(t('set.language.desc')).addDropdown(d => d
+      .addOptions(languageOptions())
+      .setValue(this.plugin.settings.language)
+      .onChange(v => { void this.applyLanguage(v); }));
     for (const { key, name, desc } of toggles()) {
       new Setting(el).setName(name).setDesc(desc).addToggle(tg => tg
         .setValue(this.plugin.settings[key])

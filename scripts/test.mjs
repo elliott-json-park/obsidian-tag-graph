@@ -16,9 +16,18 @@ const dir = mkdtempSync(join(tmpdir(), 'tag-graph-test-'));
 const require = createRequire(import.meta.url);
 let passed = 0, failed = 0;
 
+/** Stands in for the obsidian module: getLanguage() answers with globalThis.obsidianLanguage. */
+const obsidianStub = {
+  name: 'obsidian-stub',
+  setup(b) {
+    b.onResolve({ filter: /^obsidian$/ }, () => ({ path: 'obsidian', namespace: 'stub' }));
+    b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: 'export const getLanguage = () => globalThis.obsidianLanguage || "en";' }));
+  },
+};
+
 async function load(entry) {
   const out = join(dir, entry.replace(/\W/g, '_') + '.cjs');
-  await esbuild.build({ entryPoints: [entry], bundle: true, format: 'cjs', platform: 'node', outfile: out, logLevel: 'silent' });
+  await esbuild.build({ entryPoints: [entry], bundle: true, format: 'cjs', platform: 'node', outfile: out, logLevel: 'silent', plugins: [obsidianStub] });
   return require(out);
 }
 
@@ -30,6 +39,7 @@ function test(name, fn) {
 const M = await load('src/model.ts');
 const F = await load('src/frontmatter.ts');
 const I = await load('src/insights.ts');
+const L = await load('src/i18n.ts');
 
 /* ---------------------------------------------------------------- fixtures */
 
@@ -272,6 +282,52 @@ test('nearDuplicates: plurals, separators and typos, but not short look-alikes',
   const names = pairs.map(p => p.from.label + '>' + p.into.label).sort();
   assert.deepEqual(names, ['#boxes>#box', '#jounral>#journal', '#recipes>#recipe', '#studies>#study', '#to-read>#toread']);
   assert.equal(I.looseForm('#Class'), 'class');
+});
+
+/* ---------------------------------------------------------------- i18n */
+
+console.log('i18n');
+
+const placeholders = s => new Set(s.match(/\{\w+\}/g) || []);
+
+test('every English string has a Chinese one, with the same placeholders', () => {
+  const { en, zh, ko } = L.i18nTables();
+  assert.deepEqual(Object.keys(en).filter(k => !(k in zh)), []);
+  assert.deepEqual(Object.keys(zh).filter(k => !(k in en)), []);
+  for (const k of Object.keys(ko)) assert.ok(k in en, 'ko has unknown key ' + k);
+  // tip.links spells out "links out" and "backlinks" instead of taking them as labels.
+  const optional = new Set(['{outLabel}', '{inLabel}']);
+  for (const [k, s] of Object.entries(en)) {
+    for (const p of placeholders(zh[k])) assert.ok(placeholders(s).has(p), `zh ${k} has unknown ${p}`);
+    for (const p of placeholders(s)) if (!optional.has(p)) assert.ok(placeholders(zh[k]).has(p), `zh ${k} misses ${p}`);
+    assert.ok(zh[k].trim(), `zh ${k} is empty`);
+  }
+});
+
+test('language: auto follows Obsidian (zh, zh-TW → Chinese), a choice overrides it', () => {
+  assert.equal(L.langOf('zh'), 'zh');
+  assert.equal(L.langOf('zh-TW'), 'zh');
+  assert.equal(L.langOf('ko'), 'ko');
+  assert.equal(L.langOf('ja'), 'en');
+  globalThis.obsidianLanguage = 'zh-TW';
+  L.initI18n('auto');
+  assert.equal(L.t('view.name'), '标签图谱');
+  assert.equal(L.t('ui.notes', { n: 3 }), '3 篇笔记');
+  L.initI18n('en');
+  assert.equal(L.t('view.name'), 'Tag graph');
+  globalThis.obsidianLanguage = 'ko';
+  L.initI18n();
+  assert.equal(L.t('view.name'), '태그 그래프');
+  L.initI18n('zh');
+  const now = Date.UTC(2026, 9, 16), D = 86400000;
+  assert.equal(L.ago(now - 10 * 1000, now), '刚刚');
+  assert.equal(L.ago(now - D, now), '昨天');
+  assert.equal(L.ago(now - 3 * D, now), '3 天前');
+  assert.equal(L.ago(now - 400 * D, now), '1 年前');
+  assert.equal(L.isLangChoice('zh'), true);
+  assert.equal(L.isLangChoice('fr'), false);
+  L.initI18n('en');
+  delete globalThis.obsidianLanguage;
 });
 
 /* ---------------------------------------------------------------- frontmatter */
