@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.3
+
+- The settings tab no longer carries the hand-drawn version kept for Obsidian
+  before 1.13.0 (`display()`, deprecated in 1.13.0). Since 1.5.2 requires 1.13.0,
+  Obsidian draws the tab from the declared settings, as it already did. Nothing
+  changes on screen.
+
 ## 1.5.2
 
 - **Requires Obsidian 1.13.0.** Tag Graph's settings appear in Obsidian's settings

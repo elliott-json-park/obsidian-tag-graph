@@ -1,4 +1,4 @@
-import { App, Notice, Plugin, PluginSettingTab, Setting, SettingDefinitionItem, TFile, normalizePath } from 'obsidian';
+import { App, Notice, Plugin, PluginSettingTab, SettingDefinitionItem, TFile, normalizePath } from 'obsidian';
 import { TagGraphView, VIEW_TYPE, viewOptions } from './view';
 import { Actions } from './actions';
 import { LangChoice, initI18n, isLangChoice, t } from './i18n';
@@ -107,7 +107,7 @@ function languageOptions(): Record<LangChoice, string> {
   return { auto: t('set.language.auto'), en: 'English', ko: '한국어', zh: '中文' };
 }
 
-/** Name and description of every toggle, shared by both ways of drawing the tab. */
+/** Name and description of every toggle. */
 function toggles(): { key: ToggleKey; name: string; desc: string }[] {
   return [
     { key: 'confirmBulk', name: t('set.confirmBulk'), desc: t('set.confirmBulk.desc') },
@@ -124,7 +124,7 @@ class TagGraphSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
-  /** 1.13+: declared settings, so they show up in Obsidian's settings search. */
+  /** Declared settings: Obsidian draws the tab from these and finds them in its settings search. */
   getSettingDefinitions(): SettingDefinitionItem[] {
     const items: SettingDefinitionItem[] = [{
       name: t('set.language'), desc: t('set.language.desc'), aliases: ['language', 'English', '한국어', '中文'],
@@ -150,29 +150,13 @@ class TagGraphSettingTab extends PluginSettingTab {
     this.plugin.settings.language = value;
     await this.plugin.saveSettings();
     this.plugin.setLanguage(value);
-    // Redraw this tab in the new language: update() on 1.13+, by hand before.
-    if (typeof this.update === 'function') this.update();
-    else this.display();
+    // Redraw this tab in the new language.
+    this.update();
   }
 
   private async apply(key: ToggleKey, value: boolean): Promise<void> {
     this.plugin.settings[key] = value;
     await this.plugin.saveSettings();
     for (const view of this.plugin.views) view.refresh();
-  }
-
-  /** Before 1.13: the same toggles, drawn by hand. */
-  display(): void {
-    const el = this.containerEl;
-    el.empty();
-    new Setting(el).setName(t('set.language')).setDesc(t('set.language.desc')).addDropdown(d => d
-      .addOptions(languageOptions())
-      .setValue(this.plugin.settings.language)
-      .onChange(v => { void this.applyLanguage(v); }));
-    for (const { key, name, desc } of toggles()) {
-      new Setting(el).setName(name).setDesc(desc).addToggle(tg => tg
-        .setValue(this.plugin.settings[key])
-        .onChange(v => { void this.apply(key, v); }));
-    }
   }
 }
