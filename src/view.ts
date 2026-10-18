@@ -1702,7 +1702,7 @@ class ConfirmModal extends Modal {
       .addButton(b => b.setButtonText(t('modal.cancel')).onClick(() => this.close()))
       .addButton(b => {
         b.setButtonText(t('modal.confirm')).onClick(() => { this.finish(true); });
-        if (this.danger) b.setWarning(); else b.setCta();
+        if (this.danger) b.setDestructive().setCta(); else b.setCta();
       });
   }
   private finish(ok: boolean): void {

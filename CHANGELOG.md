@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.2
+
+- **Requires Obsidian 1.13.0.** Tag Graph's settings appear in Obsidian's settings
+  search, which uses APIs added in 1.13.0, while the manifest still said 1.10.2.
+  The directory's automated review flagged that. On older Obsidian versions
+  1.5.1 stays installed and keeps working.
+- Confirmation dialogs for deleting notes or folders use the new destructive
+  button style.
+
 ## 1.5.1
 
 - No changes to the plugin. A new release so the community directory runs its
