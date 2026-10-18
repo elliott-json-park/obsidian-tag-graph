@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1
+
+- No changes to the plugin. A new release so the community directory runs its
+  automated review again: 1.5.0 stayed "Not scanned" and dropped out of the
+  plugin list.
+
 ## 1.5.0
 
 - **Simplified Chinese (中文)**: the whole interface — graph, legend, details
