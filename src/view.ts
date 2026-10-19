@@ -9,7 +9,7 @@ import {
 } from './model';
 import { Renderer, DropVerdict, GRAPH_DEFAULTS, GraphSettings } from './renderer';
 import { Resolver, facetSpec } from './values';
-import { DuplicatePair, InsightNote, missing, nearDuplicates, similarNotes, valueInsight } from './insights';
+import { DuplicatePair, InsightNote, groupByFolder, missing, nearDuplicates, similarNotes, valueInsight } from './insights';
 import { fmAdd, fmAddTag, validTag } from './frontmatter';
 import { Key, ago, t } from './i18n';
 
@@ -120,7 +120,8 @@ export class TagGraphView extends BasesView implements HoverParent {
   /** Where an up/down walk started, so it steps among that node's neighbours. */
   private stepFrom: string | null = null;
   /** Order of the notes list in the details panel. */
-  private infoSort: 'name' | 'recent' = 'name';
+  /** Folders folded shut in the details panel's folder list, by hub and folder. */
+  private shutFolders = new Set<string>();
   private results: GNode[] = [];
   private resultIndex = -1;
   /** Toolbar buttons and the label each was given, to relabel them when the language changes. */
@@ -922,29 +923,70 @@ export class TagGraphView extends BasesView implements HoverParent {
 
     /* its notes */
     const sec = this.infoSection(el, t('info.notesList'), members.length);
-    // Name order finds a note; recent order shows what is happening with the value now.
+    // Name order finds a note; recent order shows what is happening with the value now;
+    // folder order shows where it is used, the same structure the graph draws.
+    const spans = new Set(members.map(n => n.folder)).size > 1;
+    const modes = spans ? (['name', 'recent', 'folder'] as const) : (['name', 'recent'] as const);
+    const chosen = this.plugin.settings.infoSort;
+    const sort = chosen === 'folder' && !spans ? 'name' : chosen;
     const sorter = sec.querySelector('.tag-graph-info-section-head')!.createDiv({ cls: 'tag-graph-info-sort' });
-    for (const mode of ['name', 'recent'] as const) {
-      const b = sorter.createSpan({ cls: 'tag-graph-info-sort-item', text: t(mode === 'name' ? 'info.sortName' : 'info.sortRecent') });
-      b.toggleClass('is-active', this.infoSort === mode);
-      b.addEventListener('click', () => { this.infoSort = mode; this.renderInfo(); });
+    for (const mode of modes) {
+      const label = mode === 'name' ? 'info.sortName' : mode === 'recent' ? 'info.sortRecent' : 'info.sortFolder';
+      const b = sorter.createSpan({ cls: 'tag-graph-info-sort-item', text: t(label) });
+      b.toggleClass('is-active', sort === mode);
+      b.addEventListener('click', () => {
+        this.plugin.settings.infoSort = mode;
+        void this.plugin.saveSettings();
+        this.renderInfo();
+      });
     }
-    if (this.infoSort === 'recent') members.sort((a, b) => b.mtime - a.mtime);
+    if (sort === 'recent') members.sort((a, b) => b.mtime - a.mtime);
     const list = sec.createDiv({ cls: 'tag-graph-info-notes' });
-    const limit = this.infoAll ? members.length : 6;
     // Beside each note: its folder when the value spans folders, else what else it is tagged with.
-    const oneFolder = new Set(members.map(n => n.folder)).size <= 1;
+    const oneFolder = !spans;
     const others = (n: InsightNote) => {
       const out: string[] = [];
       for (const ff of this.facets) for (const x of n.values[ff.id] || []) if (!(ff.id === f.id && x.key === v.key)) out.push(x.label);
       return out.slice(0, 2).join(' ');
     };
-    for (const n of members.slice(0, limit)) {
-      this.noteRow(list, n, this.infoSort === 'recent' && n.mtime ? ago(n.mtime) : oneFolder ? others(n) : undefined);
-    }
-    if (members.length > limit) {
-      const more = sec.createDiv({ cls: 'tag-graph-info-more is-link', text: t('ui.more', { n: members.length - limit }) });
-      more.addEventListener('click', () => { this.infoAll = true; this.renderInfo(); });
+    if (sort === 'folder') {
+      /* Every folder is listed and every note in it: the point of this order
+         is the whole picture, so it does not stop at six. A long list starts
+         folded, and a folder opened or shut stays that way while the panel
+         is redrawn. */
+      const groups = groupByFolder(members);
+      const shutByDefault = members.length > 30;
+      for (const grp of groups) {
+        const key = g.id + '\u0000' + grp.folder;
+        const shut = this.shutFolders.has(key) !== shutByDefault;
+        const head = list.createDiv({ cls: 'tag-graph-info-group' + (shut ? ' is-folded' : '') });
+        head.setAttr('aria-label', t('info.foldTip'));
+        head.setAttr('aria-expanded', String(!shut));
+        setIcon(head.createSpan({ cls: 'tag-graph-info-group-arrow' }), 'chevron-down');
+        const top = grp.folder ? grp.folder.split('/')[0] : t('ui.root');
+        const ci = this.colorIndex.get(top);
+        head.createSpan({ cls: 'tag-graph-swatch is-folder' }).setCssProps({
+          '--fg-color': ci !== undefined ? paletteColor(ci) : 'var(--text-muted)',
+        });
+        head.createSpan({ cls: 'tag-graph-info-group-name', text: grp.folder || t('ui.root') });
+        head.createSpan({ cls: 'tag-graph-info-group-count', text: String(grp.notes.length) });
+        head.addEventListener('click', () => {
+          if (this.shutFolders.has(key)) this.shutFolders.delete(key); else this.shutFolders.add(key);
+          this.renderInfo();
+        });
+        if (shut) continue;
+        const body = list.createDiv({ cls: 'tag-graph-info-group-notes' });
+        for (const n of grp.notes) this.noteRow(body, n, others(n));
+      }
+    } else {
+      const limit = this.infoAll ? members.length : 6;
+      for (const n of members.slice(0, limit)) {
+        this.noteRow(list, n, sort === 'recent' && n.mtime ? ago(n.mtime) : oneFolder ? others(n) : undefined);
+      }
+      if (members.length > limit) {
+        const more = sec.createDiv({ cls: 'tag-graph-info-more is-link', text: t('ui.more', { n: members.length - limit }) });
+        more.addEventListener('click', () => { this.infoAll = true; this.renderInfo(); });
+      }
     }
 
     /* the same value, written another way */

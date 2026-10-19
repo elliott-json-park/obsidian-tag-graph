@@ -264,6 +264,19 @@ test('valueInsight: the latest member and how many changed recently', () => {
   assert.equal(I.valueInsight(ns, 'file.tags', 'x').recent, 0);
 });
 
+test('groupByFolder: folders in name order with the root last, notes in name order inside', () => {
+  const n = (path) => {
+    const i = path.lastIndexOf('/');
+    return { path, name: path.slice(i + 1).replace(/\.md$/, ''), folder: i < 0 ? '' : path.slice(0, i), values: {}, mtime: 0 };
+  };
+  const groups = I.groupByFolder([n('Photos/b.md'), n('root note.md'), n('Games/Zelda.md'), n('apple/x.md'),
+    n('Games/Dota.md'), n('Photos/a.md'), n('Games/mods/Dota mod.md')]);
+  assert.deepEqual(groups.map(g => g.folder), ['apple', 'Games', 'Games/mods', 'Photos', '']);
+  assert.deepEqual(groups[1].notes.map(x => x.name), ['Dota', 'Zelda']);
+  assert.deepEqual(groups[3].notes.map(x => x.name), ['a', 'b']);
+  assert.equal(groups.reduce((k, g) => k + g.notes.length, 0), 7);
+});
+
 test('similarNotes weighs rare shared values above common ones, and missing finds untagged notes', () => {
   const ns = [inote('a.md', ['task', 'homelab']), inote('b.md', ['task']), inote('c.md', ['task']), inote('d.md', ['task']),
     inote('e.md', ['homelab']), inote('f.md', [])];

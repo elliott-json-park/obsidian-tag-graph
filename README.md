@@ -82,8 +82,10 @@ Click a tag (or any value) and a **details panel** says what the graph only hint
   light just those notes.
 - **What it comes with** — the values most often used on the same notes
   (`#task` → `#waiting`, `#urgent`…). Click one to fly to it.
-- **Which notes** — the list, each with its other tags, sorted by name or by most
-  recently edited. Hover to find it on the graph, click to open it.
+- **Which notes** — the list, each with its other tags, sorted by name, by most
+  recently edited, or **by folder**: one heading per folder the value is used in,
+  in name order, each with its own count and a fold arrow. Hover a note to find
+  it on the graph, click to open it.
 - **Possibly the same value** — `#recipes` next to `#recipe`, `#to-read` next to
   `#toread`, `#jounral` next to `#journal`, with a **Merge** button.
 - **Rename**, **New note** and **Hide** buttons.
@@ -126,7 +128,8 @@ It follows your theme, light or dark:
 ## Getting started
 
 1. Install **Tag Graph** from *Settings → Community plugins*. The **Bases** core
-   plugin must be on.
+   plugin must be on (*Settings → Core plugins → Bases*): with it off, a base
+   opens as an empty tab, and the command below says so.
 2. Run **Tag Graph: Create a base with a tag graph** from the command palette.
    Or open any `.base` file, select **Add view**, and choose **Tag graph**.
 3. That's it: tags are the hubs until you pick other **hub properties** in the

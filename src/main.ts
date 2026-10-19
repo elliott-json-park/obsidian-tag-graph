@@ -1,4 +1,4 @@
-import { App, Notice, Plugin, PluginSettingTab, SettingDefinitionItem, TFile, normalizePath } from 'obsidian';
+import { App, Notice, Plugin, PluginSettingTab, SettingDefinitionItem, TFile, WorkspaceLeaf, normalizePath } from 'obsidian';
 import { TagGraphView, VIEW_TYPE, viewOptions } from './view';
 import { Actions } from './actions';
 import { LangChoice, initI18n, isLangChoice, t } from './i18n';
@@ -12,6 +12,10 @@ export interface TagGraphSettings {
   showHints: boolean;
   /** Interface language; `auto` follows Obsidian's. */
   language: LangChoice;
+  /** How a value's notes are listed in the details panel. */
+  infoSort: 'name' | 'recent' | 'folder';
+  /** The how-to-open hint has been shown once. */
+  introShown: boolean;
 }
 
 const DEFAULTS: TagGraphSettings = {
@@ -22,6 +26,8 @@ const DEFAULTS: TagGraphSettings = {
   animate: true,
   showHints: true,
   language: 'auto',
+  infoSort: 'name',
+  introShown: false,
 };
 
 /** A new base with one graph view, named in the interface language (quoted, so any name is valid YAML). */
@@ -40,6 +46,8 @@ export default class TagGraphPlugin extends Plugin {
   actions!: Actions;
   /** Open graph views, so settings changes can redraw them. */
   readonly views = new Set<TagGraphView>();
+  /** Whether the view is registered with Bases; false while the Bases core plugin is off. */
+  private basesReady = false;
 
   async onload(): Promise<void> {
     // Settings first, so the chosen language names the view and the commands.
@@ -47,12 +55,15 @@ export default class TagGraphPlugin extends Plugin {
     initI18n(this.settings.language);
     this.actions = new Actions(this.app, () => this.settings);
 
-    this.registerBasesView(VIEW_TYPE, {
-      name: t('view.name'),
-      icon: 'waypoints',
-      factory: (controller, containerEl) => new TagGraphView(controller, containerEl, this),
-      options: () => viewOptions(),
-    });
+    this.registerGraph();
+    /* Bases turned on after this plugin loaded leaves the view unregistered,
+       and every base that uses it reads "unknown view type" until a restart.
+       So the registration is tried again whenever a base is opened, and the
+       tabs showing one are redrawn once it takes. */
+    this.registerEvent(this.app.workspace.on('file-open', file => {
+      if (this.basesReady || file?.extension !== 'base' || !this.registerGraph()) return;
+      for (const leaf of this.app.workspace.getLeavesOfType('bases')) void this.reopen(leaf);
+    }));
 
     this.registerHoverLinkSource(VIEW_TYPE, { display: 'Tag Graph', defaultMod: true });
 
@@ -82,6 +93,38 @@ export default class TagGraphPlugin extends Plugin {
     });
 
     this.addSettingTab(new TagGraphSettingTab(this.app, this));
+
+    /* A graph that lives inside Bases has no ribbon icon and no view of its
+       own to open, so a fresh install shows a settings tab and nothing else.
+       Said once, on the first start, with the two ways in. */
+    if (!this.basesReady) {
+      this.app.workspace.onLayoutReady(() => new Notice(t('notice.basesOffLoad'), 15000));
+    } else if (!this.settings.introShown) {
+      this.app.workspace.onLayoutReady(() => {
+        new Notice(t('notice.firstRun'), 15000);
+        this.settings.introShown = true;
+        void this.saveSettings();
+      });
+    }
+  }
+
+  /** Register the graph with Bases, if Bases is there to take it. */
+  private registerGraph(): boolean {
+    if (this.basesReady) return true;
+    this.basesReady = this.registerBasesView(VIEW_TYPE, {
+      name: t('view.name'),
+      icon: 'waypoints',
+      factory: (controller, containerEl) => new TagGraphView(controller, containerEl, this),
+      options: () => viewOptions(),
+    });
+    return this.basesReady;
+  }
+
+  /** Redraw a tab from scratch: the same state again is a no-op, so it goes through an empty tab first. */
+  private async reopen(leaf: WorkspaceLeaf): Promise<void> {
+    const state = leaf.getViewState();
+    await leaf.setViewState({ type: 'empty' });
+    await leaf.setViewState(state);
   }
 
   /** The graph in the active tab, if there is one. */
@@ -99,13 +142,22 @@ export default class TagGraphPlugin extends Plugin {
     for (let i = 2; this.app.vault.getAbstractFileByPath(path); i++) path = normalizePath(`${dir}${name} ${i}.base`);
     const file = await this.app.vault.create(path, starterBase(name));
     new Notice(t('cmd.created', { path: file.path }));
-    if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
+    if (!(file instanceof TFile)) return;
+    const leaf = this.app.workspace.getLeaf(false);
+    await leaf.openFile(file);
+    /* With the Bases core plugin off, a .base file has no view to open in:
+       the leaf comes back empty and nothing says why. That is the one case
+       where this command looks broken, so it is named. */
+    if (!this.registerGraph() || leaf.view.getViewType() !== 'bases') new Notice(t('notice.basesOff', { path: file.path }), 20000);
   }
 
   async loadSettings(): Promise<void> {
     const saved = (await this.loadData()) as Partial<TagGraphSettings> | null;
     this.settings = Object.assign({}, DEFAULTS, saved);
+    // Someone updating already found their way in; only a fresh install gets the hint.
+    if (saved && saved.introShown === undefined) this.settings.introShown = true;
     if (!isLangChoice(this.settings.language)) this.settings.language = DEFAULTS.language;
+    if (!['name', 'recent', 'folder'].includes(this.settings.infoSort)) this.settings.infoSort = DEFAULTS.infoSort;
   }
 
   /** Switch the interface language now. The view's name in the Bases menu and the command names keep theirs until a restart. */
@@ -119,7 +171,7 @@ export default class TagGraphPlugin extends Plugin {
   }
 }
 
-type ToggleKey = Exclude<keyof TagGraphSettings, 'language'>;
+type ToggleKey = Exclude<keyof TagGraphSettings, 'language' | 'infoSort' | 'introShown'>;
 
 /** The language dropdown's choices, each language in its own name. */
 function languageOptions(): Record<LangChoice, string> {

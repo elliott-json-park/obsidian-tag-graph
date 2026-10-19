@@ -18,6 +18,25 @@ export interface InsightNote {
 
 export interface Counted { key: string; count: number }
 
+export interface FolderGroup { folder: string; notes: InsightNote[] }
+
+/**
+ * A value's notes under their folders: folders in name order with the vault
+ * root last, notes in name order inside each. The graph already shows which
+ * folder a note sits in; this is the same structure for the list beside it.
+ */
+export function groupByFolder(notes: InsightNote[]): FolderGroup[] {
+  const by = new Map<string, InsightNote[]>();
+  for (const n of notes) {
+    const list = by.get(n.folder);
+    if (list) list.push(n); else by.set(n.folder, [n]);
+  }
+  const cmp = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
+  return [...by.keys()]
+    .sort((a, b) => (a === '' ? 1 : 0) - (b === '' ? 1 : 0) || cmp(a, b))
+    .map(folder => ({ folder, notes: by.get(folder)!.slice().sort((a, b) => cmp(a.name, b.name)) }));
+}
+
 export interface Together {
   facet: string;
   key: string;

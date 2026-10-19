@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.7.0
+
+- **Notes by folder** in the details panel: next to *Name* and *Recent*, a
+  *Folder* order lists a value's notes under one heading per folder, folders in
+  name order with the vault root last, each with its count, the colour of its
+  top-level folder and a fold arrow. Long lists (over 30 notes) start folded.
+  The order you pick is remembered. Thanks to ddoter on the Obsidian forum for
+  the idea.
+- **A blank tab is explained.** With the Bases core plugin turned off, *Create a
+  base with a tag graph* made the file and opened an empty tab with no word of
+  why. It now says that Bases is off and where to turn it on, and so does
+  Tag Graph itself when it starts with Bases off. Turning Bases on afterwards
+  no longer needs a restart: the graph registers itself the next time a base
+  is opened, where before every base read "unknown view type".
+- **A first-start hint.** Tag Graph lives inside Bases and has no icon of its
+  own, so a fresh install showed only its settings tab. On the first start a
+  notice now names the two ways to open a graph. Shown once, and not to anyone
+  updating.
+
 ## 1.6.0
 
 - **Remove and delete from the keyboard** (#3): two new commands act on the
