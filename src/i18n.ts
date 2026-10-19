@@ -199,6 +199,8 @@ const en = {
 
   'cmd.undo': 'Undo last edit',
   'cmd.create': 'Create a base with a tag graph',
+  'cmd.removeSelected': 'Remove the selected tag or property from all notes',
+  'cmd.deleteSelected': 'Delete the selected note or folder',
   'cmd.created': 'Created {path}',
 
   'set.confirmBulk': 'Confirm before changing many notes',
@@ -419,6 +421,8 @@ const ko: Partial<Record<Key, string>> = {
 
   'cmd.undo': '마지막 편집 되돌리기',
   'cmd.create': '태그 그래프 base 만들기',
+  'cmd.removeSelected': '선택한 태그나 속성을 모든 노트에서 빼기',
+  'cmd.deleteSelected': '선택한 노트나 폴더 삭제',
   'cmd.created': '{path} 만듦',
 
   'set.confirmBulk': '여러 노트를 바꾸기 전에 확인',
@@ -638,6 +642,8 @@ const zh: Record<Key, string> = {
 
   'cmd.undo': '撤销上一次编辑',
   'cmd.create': '创建带标签图谱的 Base',
+  'cmd.removeSelected': '从所有笔记中移除选中的标签或属性',
+  'cmd.deleteSelected': '删除选中的笔记或文件夹',
   'cmd.created': '已创建 {path}',
 
   'set.confirmBulk': '修改多篇笔记前确认',

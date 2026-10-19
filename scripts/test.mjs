@@ -284,6 +284,22 @@ test('nearDuplicates: plurals, separators and typos, but not short look-alikes',
   assert.equal(I.looseForm('#Class'), 'class');
 });
 
+test('nodeCommand: remove and delete act on what the right-click menu offers, and nothing else (#3)', () => {
+  const note = { id: 'n', type: 'note', path: 'a.md', label: 'a', count: 0, colors: [] };
+  const hub = (valueKey, type = 'hub') => ({ id: 'h', type, facet: 'f', valueKey, label: valueKey, count: 1, colors: [] });
+  assert.equal(M.nodeCommand('delete', note, undefined), 'delete-note');
+  assert.equal(M.nodeCommand('remove', note, undefined), null);
+  assert.equal(M.nodeCommand('remove', hub('#a'), 'tags'), 'remove-all');
+  assert.equal(M.nodeCommand('remove', hub('#a', 'subhub'), 'tags'), 'remove-all');
+  assert.equal(M.nodeCommand('remove', hub('x'), 'text'), 'remove-all');
+  assert.equal(M.nodeCommand('delete', hub('#a'), 'tags'), null);
+  assert.equal(M.nodeCommand('remove', hub('x'), 'readonly'), null);
+  assert.equal(M.nodeCommand('remove', hub('Projects'), 'folder'), null);
+  assert.equal(M.nodeCommand('delete', hub('Projects'), 'folder'), 'delete-folder');
+  assert.equal(M.nodeCommand('delete', hub('/'), 'folder'), null);
+  assert.equal(M.nodeCommand('delete', undefined, undefined), null);
+});
+
 /* ---------------------------------------------------------------- i18n */
 
 console.log('i18n');

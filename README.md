@@ -59,6 +59,11 @@ note to **remove** one of its tags or values, move it to the vault root,
 rename it or delete it, and empty space for a new note. Deleting always asks
 first and goes to the trash your *Deleted files* setting chooses.
 
+The same two things work from the keyboard on the node you clicked:
+*Remove the selected tag or property from all notes* and *Delete the selected
+note or folder* are commands with no hotkey of their own, so you can bind them
+to <kbd>Delete</kbd> (or anything else) in Settings → Hotkeys.
+
 Every edit shows a notice with **Undo**, and *Undo last edit* is a command too.
 Undo only goes ahead if the files are still exactly as the edit left them.
 

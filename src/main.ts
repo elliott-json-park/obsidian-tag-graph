@@ -62,6 +62,19 @@ export default class TagGraphPlugin extends Plugin {
       callback: () => { void this.actions.undo(); },
     });
 
+    // No default hotkey: Settings → Hotkeys can bind them, to Delete or anything else.
+    this.addCommand({
+      id: 'remove-selected-everywhere',
+      name: t('cmd.removeSelected'),
+      checkCallback: checking => this.activeView()?.runOnSelected('remove', checking) ?? false,
+    });
+
+    this.addCommand({
+      id: 'delete-selected',
+      name: t('cmd.deleteSelected'),
+      checkCallback: checking => this.activeView()?.runOnSelected('delete', checking) ?? false,
+    });
+
     this.addCommand({
       id: 'create-base',
       name: t('cmd.create'),
@@ -69,6 +82,12 @@ export default class TagGraphPlugin extends Plugin {
     });
 
     this.addSettingTab(new TagGraphSettingTab(this.app, this));
+  }
+
+  /** The graph in the active tab, if there is one. */
+  private activeView(): TagGraphView | undefined {
+    for (const view of this.views) if (view.isActive()) return view;
+    return undefined;
   }
 
   /** A starter base next to the active note (or at the root), opened on the graph. */

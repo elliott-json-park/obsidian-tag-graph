@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.0
+
+- **Remove and delete from the keyboard** (#3): two new commands act on the
+  node you clicked (the one the details panel shows). *Remove the selected tag
+  or property from all notes* does what *Remove from all notes* does on a tag
+  or value hub, including the sub-hub case, and can be undone from the notice.
+  *Delete the selected note or folder* does what *Delete note* or *Delete
+  folder* does and always asks first. Neither has a default hotkey; bind them
+  in Settings → Hotkeys, for example to <kbd>Delete</kbd>. They do nothing while
+  you are typing in the graph's search box. Thanks @dleeftink for the request.
+
 ## 1.5.3
 
 - The settings tab no longer carries the hand-drawn version kept for Obsidian

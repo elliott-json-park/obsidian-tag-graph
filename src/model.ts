@@ -93,6 +93,19 @@ export interface GNode {
   colors: string[];
 }
 
+/** What the remove and delete commands do to the selected node: the same things its right-click menu offers. */
+export type NodeCommand = 'remove-all' | 'delete-note' | 'delete-folder';
+
+export function nodeCommand(cmd: 'remove' | 'delete', g: GNode | undefined, kind: FacetKind | undefined): NodeCommand | null {
+  if (!g) return null;
+  if (cmd === 'delete') {
+    if (g.type === 'note') return g.path ? 'delete-note' : null;
+    return kind === 'folder' && g.valueKey !== undefined && g.valueKey !== '/' ? 'delete-folder' : null;
+  }
+  if (g.type === 'note') return null;
+  return kind !== undefined && kind !== 'readonly' && kind !== 'folder' ? 'remove-all' : null;
+}
+
 export type EdgeType = 'member' | 'link' | 'split' | 'tree';
 
 export interface GEdge {

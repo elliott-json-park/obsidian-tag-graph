@@ -1,11 +1,11 @@
 import {
-  BasesAllOptions, BasesPropertyId, BasesView, HoverParent, HoverPopover, Keymap, Menu, Modal,
+  BasesAllOptions, BasesPropertyId, BasesView, HoverParent, HoverPopover, ItemView, Keymap, Menu, Modal,
   Notice, Platform, QueryController, Setting, TFile, TFolder, ToggleComponent, Vault, normalizePath, parsePropertyId, setIcon,
 } from 'obsidian';
 import type TagGraphPlugin from './main';
 import {
   FacetSpec, FacetValue, GNode, GraphModel, LINK_KINDS, LegendFacet, LinkKind, NoteInput,
-  buildGraph, folderMoveDest, hubKey, validFileName, hubId, noteId, paletteColor, tagLabel, tagKey,
+  buildGraph, folderMoveDest, hubKey, nodeCommand, validFileName, hubId, noteId, paletteColor, tagLabel, tagKey,
 } from './model';
 import { Renderer, DropVerdict, GRAPH_DEFAULTS, GraphSettings } from './renderer';
 import { Resolver, facetSpec } from './values';
@@ -1587,6 +1587,44 @@ export class TagGraphView extends BasesView implements HoverParent {
         .onClick(() => { void this.deleteItem(folder); }));
     }
     menu.showAtPosition({ x, y });
+  }
+
+  /** Whether this view's graph is in the active tab. */
+  isActive(): boolean {
+    const view = this.plugin.app.workspace.getActiveViewOfType(ItemView);
+    return !!view && view.containerEl.contains(this.root) && this.root.isShown();
+  }
+
+  /**
+   * The remove and delete commands, run on the selected node. With `checking`,
+   * only says whether there is something to run them on.
+   */
+  runOnSelected(cmd: 'remove' | 'delete', checking: boolean): boolean {
+    // Bound to Delete, the key would otherwise act on the graph while the search box is being typed in.
+    const typing = this.root.ownerDocument.activeElement;
+    if (typing instanceof HTMLElement && this.root.contains(typing) &&
+      (typing.tagName === 'INPUT' || typing.tagName === 'TEXTAREA' || typing.isContentEditable)) return false;
+    const id = this.renderer.focus;
+    const g = id ? this.model?.nodes.find(n => n.id === id) : undefined;
+    const f = g && g.type !== 'note' ? this.spec(g.facet) : undefined;
+    const what = nodeCommand(cmd, g, f?.kind);
+    if (!g || !what) return false;
+    if (what === 'delete-note') {
+      const file = this.fileOf(g);
+      if (!file) return false;
+      if (!checking) void this.deleteItem(file);
+      return true;
+    }
+    const v = this.valueOfHub(g);
+    if (!f || !v) return false;
+    if (what === 'delete-folder') {
+      const folder = this.folderOf(v.key);
+      if (!folder || folder.isRoot()) return false;
+      if (!checking) void this.deleteItem(folder);
+      return true;
+    }
+    if (!checking) void this.removeEverywhere(f, v, g.type === 'subhub' ? g.subFolder ?? '' : null);
+    return true;
   }
 
   private folderOf(key: string): TFolder | null {
