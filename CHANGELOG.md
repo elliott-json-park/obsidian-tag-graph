@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.7.1
+
+- **Force sliders respond as Obsidian's do.** Center and link force now follow
+  the same curve as the graph view's sliders (steep near the top, gentle near
+  the bottom), and repel force is cubed, where before all three moved the
+  force in a straight line. Center force starts where Obsidian's does
+  (0.52 rather than 0.5). The default layout is unchanged; a base whose forces
+  were moved off their defaults will settle differently.
+
 ## 1.7.0
 
 - **Notes by folder** in the details panel: next to *Name* and *Recent*, a

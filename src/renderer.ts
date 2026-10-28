@@ -84,8 +84,12 @@ export interface GraphSettings {
 
 export const GRAPH_DEFAULTS: GraphSettings = {
   arrows: false, textFade: 0, nodeSize: 1, linkWidth: 1,
-  centerForce: 0.5, repelForce: 10, linkForce: 1, linkDistance: 250,
+  // Obsidian's own default: the slider position whose eased strength is 0.1.
+  centerForce: 0.518713248970312, repelForce: 10, linkForce: 1, linkDistance: 250,
 };
+
+/** Obsidian's curve for the center and link force sliders: 0 → 0, 1 → 1, slow at the bottom. */
+const easeForce = (v: number) => (Math.pow(0.01, 1 - v) - 0.01) / 0.99;
 
 const TAU = Math.PI * 2;
 const DRAG_PX = 4;
@@ -359,15 +363,16 @@ export class Renderer {
   /**
    * Install the forces. The graph settings scale the tuned defaults rather
    * than replace them, so the default settings give the picture people know.
+   * The sliders respond as Obsidian's do: center and link force eased, repel cubed.
    */
   private applyForces(): void {
     const sim = this.sim;
     if (!sim) return;
     const gs = this.gs, d = GRAPH_DEFAULTS;
     const dist = gs.linkDistance / d.linkDistance;
-    const pull = gs.linkForce / d.linkForce;
-    const repel = gs.repelForce / d.repelForce;
-    const center = gs.centerForce / d.centerForce;
+    const pull = easeForce(gs.linkForce) / easeForce(d.linkForce);
+    const repel = (gs.repelForce / d.repelForce) ** 3;
+    const center = easeForce(gs.centerForce) / easeForce(d.centerForce);
     const [aspectX, aspectY] = this.aspect;
     const deg = (n: SimNode) => this.adj.get(n.id)!.size || 1;
     sim
