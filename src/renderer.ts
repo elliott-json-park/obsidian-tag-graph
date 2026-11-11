@@ -98,6 +98,16 @@ const DROP_CATCH_PX = 14;
 /** While dragging, nodes this near the pointer on screen hold still. */
 const HOLD_PX = 110;
 const LONG_PRESS_MS = 550;
+/** Wheel zoom glides to where the wheel points instead of jumping a notch at a time. */
+const ZOOM_EASE_MS = 90;
+/**
+ * The layout's friction and how slowly it cools. Less friction than d3's
+ * default (0.4) and a slower cool-down let nodes glide to rest the way
+ * Obsidian's own graph does, instead of stopping dead.
+ */
+const VELOCITY_DECAY = 0.3, ALPHA_DECAY = 0.016;
+/** How lively the layout stays while a node is carried, and the nudge it gets when it is let go. */
+const DRAG_ALPHA = 0.2, RELEASE_ALPHA = 0.18;
 /** Time constant of the highlight fade: quick, but eased rather than a jump. */
 const FADE_MS = 70;
 /** How far a dimmed node and a dimmed edge fade. */
@@ -197,6 +207,9 @@ export class Renderer {
   private raf = 0;
   private dirty = true;
   private viewAnim: { from: [number, number, number]; to: [number, number, number]; t0: number; ms: number } | null = null;
+  /** Where wheel zooming is headed, and the screen point it zooms around. */
+  private zoomGoal: { k: number; sx: number; sy: number } | null = null;
+  private lastFrame = 0;
   private ro: ResizeObserver;
   private destroyed = false;
 
@@ -388,7 +401,8 @@ export class Renderer {
       .force('charge', forceManyBody<SimNode>()
         .strength(n => n === this.dragging ? 0 : repel * (n.g.type === 'hub' ? -220 - Math.min(400, n.g.count * 6) : n.g.type === 'subhub' ? -110 : -38))
         .distanceMax(900).theta(0.9))
-      .force('collide', forceCollide<SimNode>(n => n === this.dragging ? 0 : n.r + (n.g.type === 'note' ? 2 : 6)).iterations(1))
+      // Soft collisions: a full-strength push in one step makes crowded nodes jitter.
+      .force('collide', forceCollide<SimNode>(n => n === this.dragging ? 0 : n.r + (n.g.type === 'note' ? 2 : 6)).strength(0.7).iterations(1))
       // Pull towards the middle in proportion to the view's shape, so a wide
       // pane gets a wide graph. Notes with no connections are held closer, or
       // they drift to the edge and shrink everything else when fitting.
@@ -420,7 +434,8 @@ export class Renderer {
     const bw = box.width || this.w, bh = box.height || this.h;
     const ratio = bw > 1 && bh > 1 ? Math.max(0.5, Math.min(2.2, Math.round(bw / bh * 10) / 10)) : 1.4;
     this.aspect = [1 / ratio, ratio];
-    const sim = forceSimulation<SimNode, SimEdge>(this.nodes).randomSource(lcg(1234567)).stop();
+    const sim = forceSimulation<SimNode, SimEdge>(this.nodes).randomSource(lcg(1234567))
+      .velocityDecay(VELOCITY_DECAY).alphaDecay(ALPHA_DECAY).stop();
     this.sim = sim;
     this.applyForces();
 
@@ -695,6 +710,7 @@ export class Renderer {
     const k = Math.max(0.05, Math.min(2.5, Math.min(aw / Math.max(1, x1 - x0), ah / Math.max(1, y1 - y0))));
     const cx = ins.left + pad + aw / 2, cy = ins.top + pad + ah / 2;
     const tx = cx - ((x0 + x1) / 2) * k, ty = cy - ((y0 + y1) / 2) * k;
+    this.zoomGoal = null;
     if (animate && this.animate) {
       this.viewAnim = { from: [this.tx, this.ty, this.k], to: [tx, ty, k], t0: performance.now(), ms: 320 };
     } else {
@@ -710,8 +726,23 @@ export class Renderer {
     this.k = k;
     this.tx = sx - wx * k; this.ty = sy - wy * k;
     this.viewAnim = null;
+    this.zoomGoal = null;
     this.dirty = true;
     this.loop();
+  }
+
+  /** Move one frame's worth towards the wheel's zoom goal, keeping the point under the pointer still. */
+  private stepZoom(dt: number): boolean {
+    const g = this.zoomGoal;
+    if (!g) return false;
+    const a = 1 - Math.exp(-dt / ZOOM_EASE_MS);
+    const done = Math.abs(Math.log(g.k / this.k)) < 0.002;
+    const k = done ? g.k : this.k * Math.pow(g.k / this.k, a);
+    const wx = (g.sx - this.tx) / this.k, wy = (g.sy - this.ty) / this.k;
+    this.k = k;
+    this.tx = g.sx - wx * k; this.ty = g.sy - wy * k;
+    if (done) this.zoomGoal = null;
+    return !done;
   }
 
   private toWorld(sx: number, sy: number): [number, number] {
@@ -762,7 +793,12 @@ export class Renderer {
       ev.preventDefault();
       const [sx, sy] = this.local(ev);
       const f = Math.exp(-ev.deltaY * (ev.deltaMode === 1 ? 0.05 : 0.0015));
-      this.zoomAt(sx, sy, this.k * f);
+      const k = Math.max(0.05, Math.min(6, (this.zoomGoal ? this.zoomGoal.k : this.k) * f));
+      if (!this.motion()) { this.zoomAt(sx, sy, k); return; }
+      this.viewAnim = null;
+      this.zoomGoal = { k, sx, sy };
+      this.dirty = true;
+      this.loop();
     }, { passive: false });
     c.addEventListener('contextmenu', ev => {
       ev.preventDefault();
@@ -853,6 +889,7 @@ export class Renderer {
       const [a, b] = [...this.pointers.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
       const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+      this.zoomGoal = null;
       this.k = Math.max(0.05, Math.min(6, this.pinch.k * d / this.pinch.d));
       this.tx = cx - this.pinch.wx * this.k; this.ty = cy - this.pinch.wy * this.k;
       this.dirty = true; this.loop();
@@ -1003,7 +1040,7 @@ export class Renderer {
     this.applyForces();
     // The layout stays alive while a node is carried, so its neighbours follow
     // it. Only a frozen or motionless graph holds still.
-    if (this.sim && !this.frozen && this.animate) this.sim.alphaTarget(0.08).alpha(Math.max(this.sim.alpha(), 0.08));
+    if (this.sim && !this.frozen && this.animate) this.sim.alphaTarget(DRAG_ALPHA).alpha(Math.max(this.sim.alpha(), DRAG_ALPHA));
   }
 
   /**
@@ -1069,7 +1106,7 @@ export class Renderer {
     n.fx = null; n.fy = null;
     n.vx = 0; n.vy = 0;
     if (this.sim) this.sim.alphaTarget(0);
-    if (this.sim && !this.frozen) this.sim.alpha(Math.max(this.sim.alpha(), 0.08));
+    if (this.sim && !this.frozen) this.sim.alpha(Math.max(this.sim.alpha(), RELEASE_ALPHA));
     this.dirty = true;
     this.loop();
   }
@@ -1084,6 +1121,14 @@ export class Renderer {
       this.raf = 0;
       if (this.destroyed) return;
       let again = false;
+      const now = performance.now();
+      // After an idle spell the first frame counts as one ordinary frame, not the whole pause.
+      const dt = this.lastFrame && now - this.lastFrame < 100 ? now - this.lastFrame : 16;
+      this.lastFrame = now;
+      if (this.zoomGoal) {
+        if (this.stepZoom(dt)) again = true;
+        this.dirty = true;
+      }
       const sim = this.sim;
       if (sim && !this.frozen && (sim.alpha() > sim.alphaMin() || (this.dragging && this.animate))) {
         if (this.animate) { sim.tick(); again = true; this.dirty = true; }

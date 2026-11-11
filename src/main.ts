@@ -1,7 +1,8 @@
-import { App, Notice, Plugin, PluginSettingTab, SettingDefinitionItem, TFile, WorkspaceLeaf, normalizePath } from 'obsidian';
+import { App, Notice, Plugin, PluginSettingTab, SettingDefinitionItem, TFile, WorkspaceLeaf, getLanguage, normalizePath } from 'obsidian';
 import { TagGraphView, VIEW_TYPE, viewOptions } from './view';
 import { Actions } from './actions';
 import { LangChoice, initI18n, isLangChoice, t } from './i18n';
+import { StarState, askWhenPicked, maybeAskForStar, starChanged, starOnLoad } from './star';
 
 export interface TagGraphSettings {
   confirmBulk: boolean;
@@ -16,6 +17,8 @@ export interface TagGraphSettings {
   infoSort: 'name' | 'recent' | 'folder';
   /** The how-to-open hint has been shown once. */
   introShown: boolean;
+  /** The one-time star request after an update (star.ts). */
+  starAsk?: StarState;
 }
 
 const DEFAULTS: TagGraphSettings = {
@@ -54,6 +57,8 @@ export default class TagGraphPlugin extends Plugin {
     await this.loadSettings();
     initI18n(this.settings.language);
     this.actions = new Actions(this.app, () => this.settings);
+    // A base showing a graph is a 'bases' leaf; tell ours apart by the graph's canvas.
+    askWhenPicked(this, leaf => !!leaf.view.containerEl.querySelector('.tag-graph-canvas'), () => this.askForStar());
 
     this.registerGraph();
     /* Bases turned on after this plugin loaded leaves the view unregistered,
@@ -158,6 +163,23 @@ export default class TagGraphPlugin extends Plugin {
     if (saved && saved.introShown === undefined) this.settings.introShown = true;
     if (!isLangChoice(this.settings.language)) this.settings.language = DEFAULTS.language;
     if (!['name', 'recent', 'folder'].includes(this.settings.infoSort)) this.settings.infoSort = DEFAULTS.infoSort;
+    const star = starOnLoad(saved?.starAsk, !!saved, this.manifest.version);
+    const changed = starChanged(saved?.starAsk, star);
+    this.settings.starAsk = star;
+    if (changed) await this.saveSettings();
+  }
+
+  /** Show the one-time star request if an update armed it. Called when a graph view opens. */
+  askForStar(): void {
+    let language: string = this.settings.language;
+    if (language === 'auto') { try { language = getLanguage(); } catch { language = 'en'; } }
+    maybeAskForStar(this.app, {
+      state: this.settings.starAsk,
+      name: this.manifest.name,
+      url: 'https://github.com/elliott-json-park/obsidian-tag-graph',
+      language,
+      save: next => { this.settings.starAsk = next; return this.saveSettings(); },
+    });
   }
 
   /** Switch the interface language now. The view's name in the Bases menu and the command names keep theirs until a restart. */

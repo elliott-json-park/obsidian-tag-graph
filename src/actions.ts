@@ -250,6 +250,28 @@ export class Actions {
     this.remember({ files: snaps, moves: [] }, t('notice.linked', { to: target.basename, note: file.basename }));
   }
 
+  /** Whether the given property of `file` already links to `target`. */
+  isLinked(file: TFile, target: TFile, property: string): boolean {
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as FM | undefined;
+    if (!fm) return false;
+    const raw = fm[frontmatterKey(fm, property)];
+    const list = Array.isArray(raw) ? raw : raw === undefined || raw === null ? [] : [raw];
+    return list.some(v => typeof v === 'string' && this.resolver.keyOf('text', v, file.path) === 'link:' + target.path);
+  }
+
+  /** Take the link to `target` out of the given property of `file` (the same drop made again). */
+  async unlink(file: TFile, target: TFile, property: string): Promise<void> {
+    const same: Matcher = raw => this.resolver.keyOf('text', raw, file.path) === 'link:' + target.path;
+    const snaps = await this.edit([file], async f => {
+      let changed = false;
+      await this.app.fileManager.processFrontMatter(f, (fm: FM) => {
+        changed = fmRemove(fm, frontmatterKey(fm, property), same);
+      });
+      return changed;
+    });
+    this.remember({ files: snaps, moves: [] }, t('notice.unlinked', { to: target.basename, note: file.basename }));
+  }
+
   async undo(): Promise<void> {
     const op = this.last;
     if (!op) { new Notice(t('notice.nothingToUndo')); return; }

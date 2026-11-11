@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.0
+
+- **The same link drop again takes the link back out.** Holding Alt or Ctrl (Option or Cmd on a Mac) and dropping a note on a note it already links to in the link property removes that link; the badge says which it will do before you let go. Undo brings it back.
+- **Smoother motion.** Wheel zoom glides to where the wheel points instead of jumping a notch at a time. The layout has less friction and cools more slowly, so nodes glide to rest the way Obsidian's own graph does; collisions are softer, so crowded nodes no longer jitter; the graph stays livelier while a node is carried and eases back when it is let go.
+- **A one-time request to star the repository.** After an update, the first time you open a graph view yourself, a small window asks for a GitHub star. It shows once, only to people who updated, never at start-up. See "One-time message" in the README.
+
 ## 1.7.1
 
 - **Force sliders respond as Obsidian's do.** Center and link force now follow

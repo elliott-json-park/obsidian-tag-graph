@@ -246,6 +246,10 @@ Obsidian's language unless you choose one under **Language**.
 
 安装：设置 → 第三方插件 → 浏览 → 搜索 “Tag Graph”，并开启核心插件 Bases。然后在命令面板中运行 “创建带标签图谱的 Base”。
 
+## One-time message
+
+After you update Tag Graph, the first time you open a graph view yourself, a small window asks you to star this repository on GitHub if you find the plugin useful. It appears **once**, only for people who updated (never on a fresh install), never at start-up, and never again after that. Its button opens the repository in your browser only when you press it, and nothing in the plugin depends on it. There are no other messages or ads.
+
 ## More from the same author
 
 - **[Vault Orrery](https://community.obsidian.md/plugins/vault-orrery)**: your vault as a 3D galaxy, where every folder is a solar system. Replay how it grew, note by note.

@@ -197,6 +197,7 @@ export class TagGraphView extends BasesView implements HoverParent {
   onload(): void {
     this.plugin.views.add(this);
     this.readTheme();
+    this.plugin.askForStar();
   }
 
   onunload(): void {
@@ -1465,8 +1466,11 @@ export class TagGraphView extends BasesView implements HoverParent {
       }
       const prop = this.linkProperty();
       if (!prop) return null;
-      if (!linkKey) return { text: t('drop.linkHold', { keys: linkKeys(), prop }), ok: false };
-      return { text: t('drop.link', { prop }), ok: true };
+      // The same drop made again takes the link back out.
+      const from = this.fileOf(a), to = this.fileOf(b);
+      const linked = !!from && !!to && this.plugin.actions.isLinked(from, to, prop);
+      if (!linkKey) return { text: t(linked ? 'drop.unlinkHold' : 'drop.linkHold', { keys: linkKeys(), prop }), ok: false };
+      return { text: t(linked ? 'drop.unlink' : 'drop.link', { prop }), ok: true };
     }
     if (a.type !== 'note' && b.type !== 'note') {
       if (a.facet !== b.facet) return { text: t('drop.cannot'), ok: false };
@@ -1516,7 +1520,10 @@ export class TagGraphView extends BasesView implements HoverParent {
       const lf = this.linkFacetOfNote(target.path);
       if (lf) { await actions.add(file, lf, { key: 'link:' + target.path, label: target.basename, notePath: target.path }); return; }
       const prop = this.linkProperty();
-      if (prop && linkKey) await actions.link(file, target, prop);
+      if (prop && linkKey) {
+        if (actions.isLinked(file, target, prop)) await actions.unlink(file, target, prop);
+        else await actions.link(file, target, prop);
+      }
       return;
     }
     if (a.type !== 'note' && b.type !== 'note') {
