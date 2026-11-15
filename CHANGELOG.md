@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.1
+
+- **A redesigned star request.** The window that asks for a GitHub star now has a glowing star, one clear button and a quieter "Maybe later", in your theme's own accent color. People who saw the first, plainer window see the new one once more after this update; anyone who presses the star button is never asked again. See "One-time message" in the README.
+
 ## 1.8.0
 
 - **The same link drop again takes the link back out.** Holding Alt or Ctrl (Option or Cmd on a Mac) and dropping a note on a note it already links to in the link property removes that link; the badge says which it will do before you let go. Undo brings it back.
