@@ -1179,3 +1179,247 @@
 @media (prefers-reduced-motion: reduce) {
   .modal.star-ask-modal, .star-ask-icon::before, .star-ask-mark { animation: none; }
 }
+
+/* ---------------------------------------------------------------- first-run notice */
+
+.tag-graph-notice-actions {
+  display: flex;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-2);
+}
+
+/* ---------------------------------------------------------------- tag sidebar */
+
+.tag-graph-companion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+  padding: var(--size-4-3);
+}
+
+.tag-graph-comp-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+}
+
+.tag-graph-comp-head {
+  min-width: 0;
+}
+
+.tag-graph-comp-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-weight: var(--font-semibold);
+}
+
+.tag-graph-comp-kind {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-normal);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.tag-graph-comp-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: tag-graph-fade 220ms ease-out;
+}
+
+.tag-graph-comp-sub {
+  margin-top: 2px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.tag-graph-comp-graph {
+  position: relative;
+  flex: 0 0 auto;
+  height: 280px;
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  overflow: hidden;
+}
+
+.tag-graph-comp-msg {
+  display: none;
+  position: absolute;
+  inset: auto var(--size-4-3) var(--size-4-3) var(--size-4-3);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  text-align: center;
+  pointer-events: none;
+}
+
+.tag-graph-comp-graph.has-msg .tag-graph-comp-msg {
+  display: block;
+}
+
+.tag-graph-comp-tidy-head {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--size-4-2);
+}
+
+.tag-graph-comp-count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: var(--font-ui-smaller);
+  text-align: center;
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+}
+
+.tag-graph-comp-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.tag-graph-comp-item {
+  --tg-kind: var(--color-purple, #8b6cf0);
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-3);
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid var(--tg-kind);
+  animation: tag-graph-rise 260ms ease-out both;
+  animation-delay: var(--tg-delay, 0ms);
+}
+
+.tag-graph-comp-item.is-stale {
+  --tg-kind: var(--color-orange, #e08a3c);
+}
+
+.tag-graph-comp-item.is-single {
+  --tg-kind: var(--color-cyan, #22a38b);
+}
+
+.tag-graph-comp-item-kind {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.tag-graph-comp-item-icon {
+  display: inline-flex;
+  color: var(--tg-kind);
+}
+
+.tag-graph-comp-item-icon svg,
+.tag-graph-comp-arrow svg,
+.tag-graph-comp-ok-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tag-graph-comp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.tag-graph-comp-chip {
+  display: inline-flex;
+  gap: 6px;
+  padding: 1px 8px;
+  font-size: var(--font-ui-small);
+}
+
+.tag-graph-comp-chip-count {
+  color: var(--text-muted);
+}
+
+.tag-graph-comp-arrow {
+  display: inline-flex;
+  color: var(--text-faint);
+}
+
+.tag-graph-comp-toggle {
+  align-self: flex-start;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-accent);
+  cursor: pointer;
+}
+
+.tag-graph-comp-toggle:hover {
+  text-decoration: underline;
+}
+
+.tag-graph-comp-notes {
+  display: flex;
+  flex-direction: column;
+  animation: tag-graph-drop 160ms ease-out;
+}
+
+.tag-graph-comp-note-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+  padding: 2px 6px;
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.tag-graph-comp-note-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.tag-graph-comp-note-sub {
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.tag-graph-comp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+}
+
+.tag-graph-comp-actions button {
+  font-size: var(--font-ui-smaller);
+  height: auto;
+  padding: 4px 10px;
+}
+
+.tag-graph-comp-ok,
+.tag-graph-comp-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.tag-graph-comp-more {
+  margin-top: var(--size-4-2);
+}
+
+.tag-graph-comp-ok-icon {
+  display: inline-flex;
+  color: var(--color-green, #4fae7b);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tag-graph-comp-item,
+  .tag-graph-comp-note,
+  .tag-graph-comp-notes {
+    animation: none;
+  }
+}

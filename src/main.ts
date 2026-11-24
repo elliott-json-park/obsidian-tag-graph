@@ -1,5 +1,6 @@
 import { App, Notice, Plugin, PluginSettingTab, SettingDefinitionItem, TFile, WorkspaceLeaf, getLanguage, normalizePath } from 'obsidian';
 import { TagGraphView, VIEW_TYPE, viewOptions } from './view';
+import { COMPANION_TYPE, TagCompanionView } from './companion';
 import { Actions } from './actions';
 import { LangChoice, initI18n, isLangChoice, t } from './i18n';
 import { StarState, askWhenPicked, maybeAskForStar, starChanged, starOnLoad } from './star';
@@ -19,6 +20,10 @@ export interface TagGraphSettings {
   introShown: boolean;
   /** The one-time star request after an update (star.ts). */
   starAsk?: StarState;
+  /** Tidy suggestions the reader chose to keep as they are (tidy.ts ids). */
+  tidyKept: string[];
+  /** The base the ribbon icon opens: made on first use, at the vault root. */
+  homeBase: string;
 }
 
 const DEFAULTS: TagGraphSettings = {
@@ -31,6 +36,8 @@ const DEFAULTS: TagGraphSettings = {
   language: 'auto',
   infoSort: 'name',
   introShown: false,
+  tidyKept: [],
+  homeBase: '',
 };
 
 /** A new base with one graph view, named in the interface language (quoted, so any name is valid YAML). */
@@ -72,6 +79,35 @@ export default class TagGraphPlugin extends Plugin {
 
     this.registerHoverLinkSource(VIEW_TYPE, { display: 'Tag Graph', defaultMod: true });
 
+    /* The sidebar lives outside Bases, so it works with Bases off too. */
+    this.registerView(COMPANION_TYPE, leaf => new TagCompanionView(leaf, this));
+
+    // One click from anywhere to a graph of the whole vault, with no base to set up first.
+    this.addRibbonIcon('waypoints', t('ribbon.open'), () => { void this.openVaultGraph(); });
+
+    this.addCommand({
+      id: 'open-vault-graph',
+      name: t('cmd.openGraph'),
+      callback: () => { void this.openVaultGraph(); },
+    });
+
+    this.addCommand({
+      id: 'open-sidebar',
+      name: t('cmd.openSidebar'),
+      callback: () => { void this.openSidebar(); },
+    });
+
+    this.addCommand({
+      id: 'reset-kept',
+      name: t('cmd.resetKept'),
+      callback: () => {
+        this.settings.tidyKept = [];
+        void this.saveSettings();
+        this.redrawSidebars();
+        new Notice(t('notice.resetKept'));
+      },
+    });
+
     this.addCommand({
       id: 'undo-last-edit',
       name: t('cmd.undo'),
@@ -106,7 +142,7 @@ export default class TagGraphPlugin extends Plugin {
       this.app.workspace.onLayoutReady(() => new Notice(t('notice.basesOffLoad'), 15000));
     } else if (!this.settings.introShown) {
       this.app.workspace.onLayoutReady(() => {
-        new Notice(t('notice.firstRun'), 15000);
+        new Notice(this.firstRunMessage(), 20000);
         this.settings.introShown = true;
         void this.saveSettings();
       });
@@ -138,22 +174,76 @@ export default class TagGraphPlugin extends Plugin {
     return undefined;
   }
 
-  /** A starter base next to the active note (or at the root), opened on the graph. */
-  private async createBase(): Promise<void> {
+  /** The first-run notice, with the two ways in as buttons rather than names of commands. */
+  private firstRunMessage(): DocumentFragment {
+    return createFragment(f => {
+      f.createDiv({ text: t('notice.firstRun') });
+      const row = f.createDiv({ cls: 'tag-graph-notice-actions' });
+      const graph = row.createEl('button', { cls: 'mod-cta', text: t('notice.openGraph') });
+      graph.addEventListener('click', () => { void this.openVaultGraph(); });
+      const side = row.createEl('button', { text: t('notice.openSidebar') });
+      side.addEventListener('click', () => { void this.openSidebar(); });
+    });
+  }
+
+  /**
+   * The ribbon icon: open the vault-wide graph base, making it the first time.
+   * A base that was deleted or moved away is simply made again.
+   */
+  async openVaultGraph(): Promise<void> {
+    const saved = this.settings.homeBase ? this.app.vault.getAbstractFileByPath(this.settings.homeBase) : null;
+    if (saved instanceof TFile && saved.extension === 'base') {
+      const open = this.app.workspace.getLeavesOfType('bases').find(l => l.getViewState().state?.file === saved.path);
+      if (open) { await this.app.workspace.revealLeaf(open); return; }
+      const leaf = this.app.workspace.getLeaf('tab');
+      await leaf.openFile(saved);
+      if (!this.registerGraph() || leaf.view.getViewType() !== 'bases') new Notice(t('notice.basesOff', { path: saved.path }), 20000);
+      return;
+    }
+    const file = await this.createBase('', true);
+    if (file) {
+      this.settings.homeBase = file.path;
+      await this.saveSettings();
+    }
+  }
+
+  /** The tag sidebar in the right sidebar, made there once and shown again after. */
+  async openSidebar(): Promise<void> {
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(COMPANION_TYPE)[0];
+    if (!leaf) {
+      const right = ws.getRightLeaf(false);
+      if (!right) return;
+      await right.setViewState({ type: COMPANION_TYPE, active: true });
+      leaf = right;
+    }
+    await ws.revealLeaf(leaf);
+  }
+
+  /** Redraw the open tag sidebars, e.g. after a settings change. */
+  redrawSidebars(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(COMPANION_TYPE)) {
+      if (leaf.view instanceof TagCompanionView) leaf.view.redraw();
+    }
+  }
+
+  /** A starter base in `at` (default: next to the active note, else the root), opened on the graph. */
+  private async createBase(at?: string, newTab = false): Promise<TFile | null> {
     const active = this.app.workspace.getActiveFile();
-    const dir = active?.parent && !active.parent.isRoot() ? active.parent.path + '/' : '';
+    const dir = at !== undefined ? at : active?.parent && !active.parent.isRoot() ? active.parent.path + '/' : '';
     const name = t('view.name');
     let path = normalizePath(`${dir}${name}.base`);
     for (let i = 2; this.app.vault.getAbstractFileByPath(path); i++) path = normalizePath(`${dir}${name} ${i}.base`);
     const file = await this.app.vault.create(path, starterBase(name));
     new Notice(t('cmd.created', { path: file.path }));
-    if (!(file instanceof TFile)) return;
-    const leaf = this.app.workspace.getLeaf(false);
+    if (!(file instanceof TFile)) return null;
+    const leaf = this.app.workspace.getLeaf(newTab ? 'tab' : false);
     await leaf.openFile(file);
     /* With the Bases core plugin off, a .base file has no view to open in:
        the leaf comes back empty and nothing says why. That is the one case
        where this command looks broken, so it is named. */
     if (!this.registerGraph() || leaf.view.getViewType() !== 'bases') new Notice(t('notice.basesOff', { path: file.path }), 20000);
+    return file;
   }
 
   async loadSettings(): Promise<void> {
@@ -163,6 +253,9 @@ export default class TagGraphPlugin extends Plugin {
     if (saved && saved.introShown === undefined) this.settings.introShown = true;
     if (!isLangChoice(this.settings.language)) this.settings.language = DEFAULTS.language;
     if (!['name', 'recent', 'folder'].includes(this.settings.infoSort)) this.settings.infoSort = DEFAULTS.infoSort;
+    const kept: unknown = this.settings.tidyKept;
+    this.settings.tidyKept = Array.isArray(kept) ? kept.filter((x): x is string => typeof x === 'string') : [];
+    if (typeof this.settings.homeBase !== 'string') this.settings.homeBase = '';
     const star = starOnLoad(saved?.starAsk, !!saved, this.manifest.version);
     const changed = starChanged(saved?.starAsk, star);
     this.settings.starAsk = star;
@@ -186,6 +279,7 @@ export default class TagGraphPlugin extends Plugin {
   setLanguage(choice: LangChoice): void {
     initI18n(choice);
     for (const view of this.views) view.relabel();
+    this.redrawSidebars();
   }
 
   async saveSettings(): Promise<void> {
@@ -193,7 +287,7 @@ export default class TagGraphPlugin extends Plugin {
   }
 }
 
-type ToggleKey = Exclude<keyof TagGraphSettings, 'language' | 'infoSort' | 'introShown'>;
+type ToggleKey = Exclude<keyof TagGraphSettings, 'language' | 'infoSort' | 'introShown' | 'starAsk' | 'tidyKept' | 'homeBase'>;
 
 /** The language dropdown's choices, each language in its own name. */
 function languageOptions(): Record<LangChoice, string> {
@@ -251,5 +345,6 @@ class TagGraphSettingTab extends PluginSettingTab {
     this.plugin.settings[key] = value;
     await this.plugin.saveSettings();
     for (const view of this.plugin.views) view.refresh();
+    this.plugin.redrawSidebars();
   }
 }

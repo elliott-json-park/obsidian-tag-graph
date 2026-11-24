@@ -39,6 +39,7 @@ function test(name, fn) {
 const M = await load('src/model.ts');
 const F = await load('src/frontmatter.ts');
 const I = await load('src/insights.ts');
+const T = await load('src/tidy.ts');
 const L = await load('src/i18n.ts');
 
 /* ---------------------------------------------------------------- fixtures */
@@ -314,6 +315,37 @@ test('nodeCommand: remove and delete act on what the right-click menu offers, an
 });
 
 /* ---------------------------------------------------------------- i18n */
+
+console.log('tidy');
+
+{
+  const DAY = 86400000, now = 1000 * DAY;
+  const use = (label, n, daysAgo) => ({
+    key: M.tagKey(label), label: M.tagLabel(label),
+    notes: Array.from({ length: n }, (_, i) => label + i + '.md'), latest: now - daysAgo * DAY,
+  });
+  const tags = [use('recipe', 6, 2), use('recipes', 2, 3), use('old-project', 4, 400), use('once', 1, 60), use('fresh', 1, 2), use('busy', 9, 1)];
+
+  test('tidyList: look-alikes first (less used into more used), then stale tags, then old one-note tags', () => {
+    const { items, total } = T.tidyList(tags, { now, kept: new Set() });
+    assert.deepEqual(items.map(i => i.id), ['dup:recipes>recipe', 'stale:old-project', 'single:once']);
+    assert.equal(total, 3);
+    assert.equal(items[1].days, 400);
+  });
+
+  test('tidyList: a kept item is not offered again, and the limit cuts the list but not the total', () => {
+    const kept = new Set([T.dupId('recipes', 'recipe')]);
+    assert.deepEqual(T.tidyList(tags, { now, kept }).items.map(i => i.id), ['stale:old-project', 'single:once']);
+    const cut = T.tidyList(tags, { now, kept: new Set(), limit: 1 });
+    assert.equal(cut.items.length, 1);
+    assert.equal(cut.total, 3);
+  });
+
+  test('tidyList: a tag in a look-alike pair is not also listed as rare', () => {
+    const { items } = T.tidyList([use('meeting', 1, 90), use('meetings', 5, 90)], { now, kept: new Set() });
+    assert.deepEqual(items.map(i => i.id), ['dup:meeting>meetings']);
+  });
+}
 
 console.log('i18n');
 

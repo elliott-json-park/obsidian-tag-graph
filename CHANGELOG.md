@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.0
+
+- **A tag sidebar.** Run *Open the tag sidebar* (or use the button in the first-run notice) to keep a small graph next to your notes. It follows the note you are on: its tags, the notes that share them, and the notes it links with. Drop a note on one of the tags there to add that tag. It lives outside Bases, so it works with Bases turned off too.
+- **To tidy this week.** Below the sidebar graph, up to five tags worth a look across the whole vault: two tags that look like one written two ways (merge with one button), a tag none of whose notes has been edited for half a year, and a tag on a single note untouched for a month (remove with one button). *Keep* hides a suggestion for good, and *Suggest the tags I kept again* brings them back. Every change can be undone from the notice.
+- **One click to the whole vault.** A ribbon icon and the command *Open the tag graph of the whole vault* open a graph of every note. The first time, they make a base for it at the vault root; after that they open the same one again instead of making another.
+- **A first-run notice with buttons.** A fresh install now offers *Open the graph* and *Open the sidebar* as buttons, instead of naming commands to look for.
+
 ## 1.8.1
 
 - **A redesigned star request.** The window that asks for a GitHub star now has a glowing star, one clear button and a quieter "Maybe later", in your theme's own accent color. People who saw the first, plainer window see the new one once more after this update; anyone who presses the star button is never asked again. See "One-time message" in the README.

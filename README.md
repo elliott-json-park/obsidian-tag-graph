@@ -130,10 +130,31 @@ It follows your theme, light or dark:
 1. Install **Tag Graph** from *Settings → Community plugins*. The **Bases** core
    plugin must be on (*Settings → Core plugins → Bases*): with it off, a base
    opens as an empty tab, and the command below says so.
-2. Run **Tag Graph: Create a base with a tag graph** from the command palette.
-   Or open any `.base` file, select **Add view**, and choose **Tag graph**.
+2. Click the **Tag graph** icon in the ribbon (or run **Tag Graph: Open the tag
+   graph of the whole vault**). The first time, it makes a base for your whole
+   vault at the root and opens it; after that it opens the same one again.
+   To graph only some notes, run **Tag Graph: Create a base with a tag graph**,
+   or open any `.base` file, select **Add view**, and choose **Tag graph**.
 3. That's it: tags are the hubs until you pick other **hub properties** in the
    view options.
+
+### The tag sidebar
+
+Run **Tag Graph: Open the tag sidebar** to keep a small graph in the right
+sidebar while you write. It does not need a base.
+
+- **This note**: the note you are on, its tags, the notes that share the most
+  of them, and the notes it links with. It follows you from note to note.
+  Drop a note on one of the tags to add it; click a note to open it.
+- **To tidy this week**: up to five tags worth a look across the whole vault.
+  - *Look like the same tag* (`#recipes` and `#recipe`): **Merge** moves the
+    less used one into the other.
+  - *Not touched for N days*: a tag whose notes have not been edited for half a
+    year. **Remove the tag** takes it off them.
+  - *Used on one note only*, on a note untouched for a month.
+  - **Keep** hides that suggestion for good. **Tag Graph: Suggest the tags I
+    kept again** brings back everything you kept.
+  Every change can be undone from the notice, as on the graph.
 
 ### Using the graph
 
@@ -241,10 +262,11 @@ Obsidian's language unless you choose one under **Language**.
 - **详情面板**：点击标签，查看有多少笔记在用它、用在哪些文件夹、常和哪些值一起出现，以及可能重复的标签。
 - **整理**：隐藏少用的标签，按文件夹拆分标签，区分笔记、标题、块、属性链接和嵌入。
 - **由 Bases 的筛选决定画什么**：只看一个项目、一个文件夹或一个查询。
+- **标签侧边栏**：在写作时把一个小图谱放在右侧边栏，跟随当前笔记，显示它的标签、共享这些标签的笔记和它链接的笔记。下方的“本周待整理”列出整个仓库里值得看一眼的标签（看起来重复、半年没动、只用在一篇笔记上），一键合并或移除，也可以选择保留。
 - 界面支持 中文 · English · 한국어。默认跟随 Obsidian 的语言，也可以在 设置 → Tag Graph → 语言 中切换。
 - 不发出任何网络请求。桌面端和移动端都能用。
 
-安装：设置 → 第三方插件 → 浏览 → 搜索 “Tag Graph”，并开启核心插件 Bases。然后在命令面板中运行 “创建带标签图谱的 Base”。
+安装：设置 → 第三方插件 → 浏览 → 搜索 “Tag Graph”，并开启核心插件 Bases。然后点击左侧功能区的标签图谱图标，打开整个仓库的图谱；或在命令面板中运行 “打开标签侧边栏”。
 
 ## One-time message
 

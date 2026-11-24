@@ -1769,7 +1769,7 @@ function count(n: number, one: Parameters<typeof t>[0], many: Parameters<typeof 
 
 /* ==================================================================== modals */
 
-function confirm(plugin: TagGraphPlugin, title: string, desc: string, danger = false): Promise<boolean> {
+export function confirm(plugin: TagGraphPlugin, title: string, desc: string, danger = false): Promise<boolean> {
   return new Promise(resolve => {
     const m = new ConfirmModal(plugin, title, desc, resolve, danger);
     m.open();
