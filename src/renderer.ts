@@ -10,7 +10,7 @@
  * that note and leaves the rest of the picture where the reader left it.
  */
 import {
-  Simulation, SimulationLinkDatum, SimulationNodeDatum,
+  Force, ForceManyBody, Simulation, SimulationLinkDatum, SimulationNodeDatum,
   forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY,
 } from 'd3-force';
 import { GEdge, GNode, GraphModel, folderLabel } from './model';
@@ -104,6 +104,16 @@ const DROP_CATCH_PX = 14;
 const HOLD_PX = 120, GRIP_MAX = 0.88;
 /** A carried node leans this far towards a drop target that will take it. */
 const MAGNET = 0.28, MAGNET_MS = 60;
+/**
+ * Notes with no connections sit in a shell just outside the connected core:
+ * past the node at this share of the core's reach, plus a gap. Below a handful
+ * of connected nodes there is no core to wrap.
+ */
+const SHELL_CORE = 0.92, SHELL_GAP = 36, SHELL_PUSH = 0.5, SHELL_MIN_JOINED = 4;
+/** Each step the connected core slides this share of the way back to the middle. */
+const CORE_RECENTER = 0.06;
+/** While a node is carried, each step the rest slides this share of the way back to where it was. */
+const DRAG_ANCHOR = 0.25;
 /** The simulation steps at a fixed rate, whatever the display's refresh rate. */
 const STEP_MS = 1000 / 60, MAX_STEPS = 3;
 /** A node let go while moving keeps some of its speed (in world units per step), up to a limit. */
@@ -209,6 +219,13 @@ export class Renderer {
   private trail: { t: number; x: number; y: number }[] = [];
   /** Time not yet stepped by the simulation. */
   private stepDebt = STEP_MS;
+  /** Nodes with no connections, the rest, and the shell the first sit on; see applyShell. */
+  private loners: SimNode[] = [];
+  private joined: SimNode[] = [];
+  private shell: { x: number; y: number; a: number; b: number } | null = null;
+  private shellTicks = 0;
+  /** Where the rest of the graph's centre was when the carried node was picked up. */
+  private dragAnchor: { x: number; y: number } | null = null;
   /** Modifier keys held during the current drag, and whether it is by touch or pen. */
   private dragKeys = false;
   private dragTouch = false;
@@ -359,6 +376,10 @@ export class Renderer {
     let fresh = 0;
     const hubs = this.nodes.filter(n => n.g.type === 'hub');
     const ring = 70 * Math.sqrt(Math.max(1, hubs.length));
+    // Notes with no connections start outside the connected part, where the shell will hold them.
+    let joined = 0;
+    for (const n of this.nodes) if (this.adj.get(n.id)!.size) joined++;
+    const outer = joined >= SHELL_MIN_JOINED ? ring + 26 * Math.sqrt(joined) + SHELL_GAP : 0;
     hubs.forEach((n, i) => {
       const p = this.known.get(n.id);
       if (p) { n.x = p.x; n.y = p.y; return; }
@@ -380,6 +401,7 @@ export class Renderer {
       const a = (h % 3600) / 3600 * TAU;
       const d = 18 + (h >>> 12) % 40;
       if (c > 0) { n.x = sx / c + Math.cos(a) * d; n.y = sy / c + Math.sin(a) * d; }
+      else if (outer && !this.adj.get(n.id)!.size) { const rr = outer + (h >>> 8) % 80; n.x = Math.cos(a) * rr; n.y = Math.sin(a) * rr; }
       else { const rr = ring * 0.6 + (h >>> 8) % Math.max(60, ring); n.x = Math.cos(a) * rr; n.y = Math.sin(a) * rr; }
     }
     return fresh;
@@ -404,6 +426,9 @@ export class Renderer {
     const center = easeForce(gs.centerForce) / easeForce(d.centerForce);
     const [aspectX, aspectY] = this.aspect;
     const deg = (n: SimNode) => this.adj.get(n.id)!.size || 1;
+    this.loners = this.nodes.filter(n => !this.adj.get(n.id)!.size);
+    this.joined = this.nodes.filter(n => this.adj.get(n.id)!.size);
+    this.shell = null; this.shellTicks = 0;
     sim
       .force('link', forceLink<SimNode, SimEdge>(this.edges)
         .distance(l => l.e.type === 'member' ? l.target.r + 26 * dist
@@ -417,17 +442,99 @@ export class Renderer {
       // Hubs push harder the more notes they hold, but by the square root, so a
       // big hub spreads its notes out instead of flinging them away.
       .force('charge', forceManyBody<SimNode>()
-        .strength(n => n === this.dragging ? 0 : repel * (n.g.type === 'hub' ? -180 - Math.min(320, Math.sqrt(n.g.count) * 40) : n.g.type === 'subhub' ? -110 : -38))
+        // Notes with no connections push nothing here (they are pushed, though),
+        // so their crowd cannot squeeze the connected core out of shape.
+        .strength(n => n === this.dragging || !this.adj.get(n.id)!.size ? 0
+          : repel * (n.g.type === 'hub' ? -180 - Math.min(320, Math.sqrt(n.g.count) * 40) : n.g.type === 'subhub' ? -110 : -38))
         .distanceMax(900).theta(0.9))
+      // ...and they spread one another out along the shell.
+      .force('loners', this.amongLoners(forceManyBody<SimNode>()
+        .strength(n => n === this.dragging ? 0 : repel * -20).distanceMax(400).theta(0.9)))
       // Soft collisions: a full-strength push in one step makes crowded nodes jitter.
       .force('collide', forceCollide<SimNode>(n => n === this.dragging ? 0 : n.r + (n.g.type === 'note' ? 2 : 6)).strength(0.7).iterations(1))
       // Pull towards the middle in proportion to the view's shape, so a wide
-      // pane gets a wide graph. Notes with no connections are held closer, or
-      // they drift to the edge and shrink everything else when fitting.
-      .force('x', forceX<SimNode>(0).strength(n => center * (this.adj.get(n.id)!.size ? 0.03 : 0.12) * aspectX))
-      .force('y', forceY<SimNode>(0).strength(n => center * (this.adj.get(n.id)!.size ? 0.03 : 0.12) * aspectY))
+      // pane gets a wide graph. Notes with no connections are held a little
+      // closer, so they hug the shell (below) instead of drifting off and
+      // shrinking everything else when fitting.
+      // (The shell's pull is the same across and down: shaped like the pane, it
+      // would squeeze the core from the sides and stretch it tall.)
+      .force('x', forceX<SimNode>(0).strength(n => center * (this.adj.get(n.id)!.size ? 0.03 * aspectX : 0.04)))
+      .force('y', forceY<SimNode>(0).strength(n => center * (this.adj.get(n.id)!.size ? 0.03 * aspectY : 0.04)))
+      .force('shell', (alpha: number) => this.applyShell(alpha))
+      .force('anchor', () => this.applyAnchor())
       // Installed last, so it thins out the speed every other force has just given.
       .force('grip', () => this.applyGrip());
+  }
+
+  /**
+   * Move the free nodes of `group`, all together, `share` of the way from
+   * their centroid to (x, y). Their shape is untouched.
+   */
+  private slide(group: SimNode[], x: number, y: number, share: number): void {
+    let cx = 0, cy = 0, c = 0;
+    const free = (n: SimNode) => n !== this.dragging && n.x !== undefined && n.y !== undefined && (n.fx === null || n.fx === undefined);
+    for (const n of group) if (free(n)) { cx += n.x!; cy += n.y!; c++; }
+    if (!c) return;
+    const dx = (x - cx / c) * share, dy = (y - cy / c) * share;
+    for (const n of group) if (free(n)) { n.x! += dx; n.y! += dy; }
+  }
+
+  /**
+   * While a node is carried, hold the rest of the graph where it was. The
+   * carried node is pinned to the pointer, so its links drag the whole
+   * picture after it, and the target being aimed at slides away. Its
+   * neighbours still lean towards it; only the drift of the whole is taken out.
+   */
+  private applyAnchor(): void {
+    const a = this.dragAnchor;
+    if (a && this.dragging) this.slide(this.nodes, a.x, a.y, DRAG_ANCHOR);
+  }
+
+  /** A force that acts among the notes with no connections only. */
+  private amongLoners(f: ForceManyBody<SimNode>): Force<SimNode, SimEdge> {
+    const g: Force<SimNode, SimEdge> = (alpha: number) => f(alpha);
+    g.initialize = (_nodes: SimNode[], random: () => number) => f.initialize?.(this.loners, random);
+    return g;
+  }
+
+  /**
+   * Keep notes with no connections outside the connected part, as a shell
+   * around it, the way Obsidian's graph does. Held in the middle, hundreds of
+   * them form a block whose push drives every linked note out to the rim, and
+   * the links then cross the whole picture.
+   */
+  private applyShell(alpha: number): void {
+    const loners = this.loners, joined = this.joined;
+    if (!loners.length || joined.length < SHELL_MIN_JOINED) return;
+    // The loners no longer push the core, so nothing would keep it in the
+    // middle of their shell: slide it back there, all together, so its shape
+    // is untouched. (While a node is carried, applyAnchor holds everything.)
+    if (!this.dragging) this.slide(joined, 0, 0, CORE_RECENTER);
+    // The core's size changes slowly; measuring it every few steps is enough.
+    if (this.shellTicks-- <= 0) {
+      this.shellTicks = 4;
+      let cx = 0, cy = 0, c = 0;
+      for (const n of joined) if (n.x !== undefined && n.y !== undefined) { cx += n.x; cy += n.y; c++; }
+      if (!c) return;
+      cx /= c; cy /= c;
+      // An ellipse fitted to the core's own reach across and down, so the
+      // shell wraps it whatever its shape, on every side.
+      const ax: number[] = [], ay: number[] = [];
+      for (const n of joined) if (n.x !== undefined && n.y !== undefined) { ax.push(Math.abs(n.x - cx)); ay.push(Math.abs(n.y - cy)); }
+      const at = (v: number[]) => v.sort((a, b) => a - b)[Math.floor((v.length - 1) * SHELL_CORE)];
+      this.shell = { x: cx, y: cy, a: at(ax) + SHELL_GAP, b: at(ay) + SHELL_GAP };
+    }
+    const s = this.shell;
+    if (!s) return;
+    for (const n of loners) {
+      if (n === this.dragging || n.x === undefined || n.y === undefined) continue;
+      let dx = n.x - s.x, dy = n.y - s.y;
+      let e = Math.hypot(dx / s.a, dy / s.b);
+      if (e >= 1) continue;
+      if (e < 1e-3) { const a = (hash(n.id) % 3600) / 3600 * TAU; dx = Math.cos(a); dy = Math.sin(a); e = Math.hypot(dx / s.a, dy / s.b); }
+      const f = (1 - e) / e * SHELL_PUSH * alpha;
+      n.vx = (n.vx ?? 0) + dx * f; n.vy = (n.vy ?? 0) + dy * f;
+    }
   }
 
   /** Slow down what is near the pointer while a node is carried; see HOLD_PX. */
@@ -1091,6 +1198,9 @@ export class Renderer {
     this.grip = n.x !== undefined && n.y !== undefined ? { x: n.x, y: n.y } : null;
     this.magnet = 0;
     this.trail = [];
+    let ax = 0, ay = 0, ac = 0;
+    for (const m of this.nodes) if (m !== n && m.x !== undefined && m.y !== undefined) { ax += m.x; ay += m.y; ac++; }
+    this.dragAnchor = ac ? { x: ax / ac, y: ay / ac } : null;
     // Re-read the forces, which now leave the carried node out of repulsion and collision.
     this.applyForces();
     // The layout stays alive while a node is carried, so its neighbours follow
@@ -1143,6 +1253,7 @@ export class Renderer {
     this.grip = null;
     this.magnet = 0;
     this.trail = [];
+    this.dragAnchor = null;
     this.canvas.removeClass('is-dragging');
     this.holdTarget(null);
     this.applyForces();

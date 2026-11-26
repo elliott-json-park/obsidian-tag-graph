@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.10.1
+
+- **Linked notes stay in the middle; unlinked notes wrap around them.** In a vault with many notes that link to nothing, those notes were held in a tight block in the middle, and its push drove every linked note out to the rim, so the links crossed the whole picture. Now the linked part sits in the middle and the unlinked notes form a ring around it, the way Obsidian's own graph does. Unlinked notes no longer push the linked ones, so the middle keeps its own shape.
+- **The graph no longer slides after a carried node.** While you drag, the rest of the graph holds its place as a whole, so the tag you are aiming at does not drift off with it. The carried node's neighbours still lean towards it.
+
 ## 1.10.0
 
 - **More natural motion while you drag.** Nodes near the pointer used to freeze in place the moment it came near and jump back into motion when it left. Now they slow down smoothly, the nearer the slower, so the note you are aiming at still does not drift away, but nothing stops dead.
