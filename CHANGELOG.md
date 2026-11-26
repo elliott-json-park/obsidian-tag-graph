@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.10.0
+
+- **More natural motion while you drag.** Nodes near the pointer used to freeze in place the moment it came near and jump back into motion when it left. Now they slow down smoothly, the nearer the slower, so the note you are aiming at still does not drift away, but nothing stops dead.
+- **A drop target draws the carried node in.** When the node under the pointer will take the drop, the carried node leans a little towards it, so you can feel where it will land.
+- **Let go while moving and the node carries on.** Released in empty space, a node keeps some of the pointer's speed before the layout takes it back. Dropping on a target does not throw.
+- **The same speed on every screen.** The layout now steps 60 times a second whatever the display's refresh rate, so a 120 Hz or 144 Hz screen no longer runs it two or more times as fast.
+- **Big tags spread their notes more gently.** A tag's push now grows with the square root of its note count, with a lower ceiling, so the notes around a large tag no longer get flung outwards. Layouts settle a little differently from before.
+
 ## 1.9.0
 
 - **A tag sidebar.** Run *Open the tag sidebar* (or use the button in the first-run notice) to keep a small graph next to your notes. It follows the note you are on: its tags, the notes that share them, and the notes it links with. Drop a note on one of the tags there to add that tag. It lives outside Bases, so it works with Bases turned off too.

@@ -168,8 +168,10 @@ sidebar while you write. It does not need a base.
   every match.
 - **Hover** a node and its connections fade in while the rest fades back —
   quickly, but without a jolt.
-- **Drag** to edit. While you drag, the note's own connections stay highlighted
-  and the target under the pointer holds still.
+- **Drag** to edit. While you drag, the note's own connections stay highlighted,
+  the nodes around the pointer slow down instead of drifting off, and a target
+  that will take the drop holds still and draws the carried node a little
+  towards it. Let go in empty space while moving and the node carries on a bit.
 - **Scroll** to zoom, **drag the background** to pan. <kbd>Esc</kbd> cancels a
   drag and clears the highlight.
 - **Keys** on the graph: <kbd>/</kbd> search, <kbd>i</kbd> details,

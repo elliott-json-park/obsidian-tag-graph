@@ -95,8 +95,19 @@ const TAU = Math.PI * 2;
 const DRAG_PX = 4;
 /** How near, on screen, the pointer must come to a node for it to take a drop. */
 const DROP_CATCH_PX = 14;
-/** While dragging, nodes this near the pointer on screen hold still. */
-const HOLD_PX = 110;
+/**
+ * While dragging, nodes this near the pointer on screen move as if through
+ * syrup: the nearer, the thicker (up to GRIP_MAX of their speed taken each
+ * step). They slow down smoothly instead of freezing in place, so the note
+ * being aimed at does not drift off, yet nothing stops dead.
+ */
+const HOLD_PX = 120, GRIP_MAX = 0.88;
+/** A carried node leans this far towards a drop target that will take it. */
+const MAGNET = 0.28, MAGNET_MS = 60;
+/** The simulation steps at a fixed rate, whatever the display's refresh rate. */
+const STEP_MS = 1000 / 60, MAX_STEPS = 3;
+/** A node let go while moving keeps some of its speed (in world units per step), up to a limit. */
+const THROW_KEEP = 0.55, THROW_MAX = 28, THROW_WINDOW_MS = 90;
 const LONG_PRESS_MS = 550;
 /** Wheel zoom glides to where the wheel points instead of jumping a notch at a time. */
 const ZOOM_EASE_MS = 90;
@@ -191,8 +202,13 @@ export class Renderer {
   private dragging: SimNode | null = null;
   private dropTarget: SimNode | null = null;
   private held: { node: SimNode; wasPinned: boolean } | null = null;
-  /** Nodes held still because the pointer is near them mid-drag, and whether they were pinned before. */
-  private stilled = new Map<SimNode, boolean>();
+  /** Where the pointer is in the world while a node is carried, and how far the node leans to its target (0..1). */
+  private grip: { x: number; y: number } | null = null;
+  private magnet = 0;
+  /** Recent pointer positions mid-drag, so a node let go while moving keeps going. */
+  private trail: { t: number; x: number; y: number }[] = [];
+  /** Time not yet stepped by the simulation. */
+  private stepDebt = STEP_MS;
   /** Modifier keys held during the current drag, and whether it is by touch or pen. */
   private dragKeys = false;
   private dragTouch = false;
@@ -398,8 +414,10 @@ export class Renderer {
         }))
       // The node being carried neither pushes nor bumps: otherwise whatever it is
       // brought towards — a small note above all — backs away before it can be dropped on.
+      // Hubs push harder the more notes they hold, but by the square root, so a
+      // big hub spreads its notes out instead of flinging them away.
       .force('charge', forceManyBody<SimNode>()
-        .strength(n => n === this.dragging ? 0 : repel * (n.g.type === 'hub' ? -220 - Math.min(400, n.g.count * 6) : n.g.type === 'subhub' ? -110 : -38))
+        .strength(n => n === this.dragging ? 0 : repel * (n.g.type === 'hub' ? -180 - Math.min(320, Math.sqrt(n.g.count) * 40) : n.g.type === 'subhub' ? -110 : -38))
         .distanceMax(900).theta(0.9))
       // Soft collisions: a full-strength push in one step makes crowded nodes jitter.
       .force('collide', forceCollide<SimNode>(n => n === this.dragging ? 0 : n.r + (n.g.type === 'note' ? 2 : 6)).strength(0.7).iterations(1))
@@ -407,7 +425,37 @@ export class Renderer {
       // pane gets a wide graph. Notes with no connections are held closer, or
       // they drift to the edge and shrink everything else when fitting.
       .force('x', forceX<SimNode>(0).strength(n => center * (this.adj.get(n.id)!.size ? 0.03 : 0.12) * aspectX))
-      .force('y', forceY<SimNode>(0).strength(n => center * (this.adj.get(n.id)!.size ? 0.03 : 0.12) * aspectY));
+      .force('y', forceY<SimNode>(0).strength(n => center * (this.adj.get(n.id)!.size ? 0.03 : 0.12) * aspectY))
+      // Installed last, so it thins out the speed every other force has just given.
+      .force('grip', () => this.applyGrip());
+  }
+
+  /** Slow down what is near the pointer while a node is carried; see HOLD_PX. */
+  private applyGrip(): void {
+    const g = this.grip, carried = this.dragging;
+    if (!g || !carried) return;
+    const reach = HOLD_PX / this.k;
+    for (const n of this.nodes) {
+      if (n === carried || n.x === undefined || n.y === undefined || n.vx === undefined || n.vy === undefined) continue;
+      const d = Math.hypot(n.x - g.x, n.y - g.y) - n.r;
+      if (d >= reach) continue;
+      const t = d <= 0 ? 1 : 1 - d / reach;
+      const keep = 1 - GRIP_MAX * t * t * (3 - 2 * t);
+      n.vx *= keep; n.vy *= keep;
+    }
+  }
+
+  /** Put the carried node under the pointer, leaning towards a target that will take it. */
+  private placeCarried(): void {
+    const n = this.dragging, g = this.grip;
+    if (!n || !g) return;
+    const t = this.dropTarget;
+    let x = g.x, y = g.y;
+    if (t && this.magnet > 0 && t.x !== undefined && t.y !== undefined) {
+      const m = MAGNET * this.magnet;
+      x += (t.x - x) * m; y += (t.y - y) * m;
+    }
+    n.fx = x; n.fy = y; n.x = x; n.y = y;
   }
 
   /** Change the graph settings. Forces and node size nudge the layout; the rest only redraws. */
@@ -911,16 +959,20 @@ export class Renderer {
     if (this.dragging) {
       const [wx, wy] = this.toWorld(sx, sy);
       const n = this.dragging;
-      n.fx = wx; n.fy = wy; n.x = wx; n.y = wy;
+      this.grip = { x: wx, y: wy };
+      const now = performance.now();
+      this.trail.push({ t: now, x: wx, y: wy });
+      while (this.trail.length > 2 && now - this.trail[0].t > THROW_WINDOW_MS) this.trail.shift();
       this.dragScreen = { x: sx, y: sy };
       const target = this.hit(sx, sy, n, DROP_CATCH_PX);
       if (target !== this.dropTarget) {
         this.dropTarget = target;
         this.verdict = target ? this.host.dropVerdict(n.g, target.g, this.linkKey()) : null;
-        this.badgeAt = performance.now();
+        this.badgeAt = now;
+        this.magnet = 0;
         this.holdTarget(target);
       } else this.setLinkKey(ev);
-      this.holdNear(wx, wy, n);
+      this.placeCarried();
       this.edgePan(sx, sy);
     } else {
       this.tx += sx - d.x; this.ty += sy - d.y;
@@ -959,7 +1011,7 @@ export class Renderer {
     if (this.dragging) {
       this.setLinkKey(ev);
       const n = this.dragging, target = this.dropTarget, verdict = this.verdict, key = this.linkKey();
-      this.endDrag();
+      this.endDrag(!(target && verdict && verdict.ok));
       if (target && verdict && verdict.ok) { this.pulse(target.id); this.host.drop(n.g, target.g, key); }
       return;
     }
@@ -1036,6 +1088,9 @@ export class Renderer {
     this.host.hover(null, null);
     this.canvas.addClass('is-dragging');
     n.fx = n.x; n.fy = n.y;
+    this.grip = n.x !== undefined && n.y !== undefined ? { x: n.x, y: n.y } : null;
+    this.magnet = 0;
+    this.trail = [];
     // Re-read the forces, which now leave the carried node out of repulsion and collision.
     this.applyForces();
     // The layout stays alive while a node is carried, so its neighbours follow
@@ -1050,8 +1105,7 @@ export class Renderer {
   private holdTarget(target: SimNode | null): void {
     const prev = this.held;
     if (prev && prev.node !== target) {
-      // Still near the pointer: the hold around it keeps it, not this.
-      if (!prev.wasPinned && !this.stilled.has(prev.node)) { prev.node.fx = null; prev.node.fy = null; }
+      if (!prev.wasPinned) { prev.node.fx = null; prev.node.fy = null; }
       this.held = null;
     }
     if (target && (!this.held || this.held.node !== target)) {
@@ -1063,55 +1117,45 @@ export class Renderer {
   }
 
   /**
-   * Keep still whatever is near the pointer while a node is carried. The
-   * carried node still pulls its hubs, and they pull their other notes, so
-   * without this the very note being aimed at drifts off with the crowd. Far
-   * away the layout stays alive; each node rejoins once the pointer has gone.
+   * The pointer's speed over its last few moves, in world units per
+   * simulation step, kept in part and capped. Zero if the pointer had stopped.
    */
-  private holdNear(wx: number, wy: number, carried: SimNode): void {
-    const reach = HOLD_PX / this.k;
-    const near = new Set<SimNode>();
-    for (const n of this.nodes) {
-      if (n === carried || n.x === undefined || n.y === undefined) continue;
-      if (Math.hypot(n.x - wx, n.y - wy) - n.r <= reach) near.add(n);
-    }
-    for (const [n, wasPinned] of this.stilled) {
-      if (near.has(n)) continue;
-      if (!wasPinned && this.held?.node !== n) { n.fx = null; n.fy = null; }
-      this.stilled.delete(n);
-    }
-    for (const n of near) {
-      if (this.stilled.has(n)) continue;
-      this.stilled.set(n, n.fx !== null && n.fx !== undefined);
-      n.fx = n.x; n.fy = n.y; n.vx = 0; n.vy = 0;
-    }
+  private flingSpeed(): [number, number] {
+    const tr = this.trail, now = performance.now();
+    if (tr.length < 2) return [0, 0];
+    const a = tr[0], b = tr[tr.length - 1];
+    const ms = b.t - a.t;
+    if (ms < 8 || now - b.t > 50) return [0, 0];
+    let vx = (b.x - a.x) / ms * STEP_MS * THROW_KEEP, vy = (b.y - a.y) / ms * STEP_MS * THROW_KEEP;
+    const v = Math.hypot(vx, vy);
+    if (v > THROW_MAX) { vx *= THROW_MAX / v; vy *= THROW_MAX / v; }
+    return [vx, vy];
   }
 
-  private releaseStilled(): void {
-    for (const [n, wasPinned] of this.stilled) if (!wasPinned) { n.fx = null; n.fy = null; }
-    this.stilled.clear();
-  }
-
-  private endDrag(): void {
+  /** `fling`: let the node go on with the pointer's speed (not when it was dropped on something). */
+  private endDrag(fling = false): void {
     const n = this.dragging;
     if (!n) return;
+    const [vx, vy] = fling && this.animate && !this.frozen ? this.flingSpeed() : [0, 0];
     this.dragging = null;
     this.dropTarget = null;
     this.verdict = null;
+    this.grip = null;
+    this.magnet = 0;
+    this.trail = [];
     this.canvas.removeClass('is-dragging');
     this.holdTarget(null);
-    this.releaseStilled();
     this.applyForces();
     // Frozen: the node stays where it was put. Otherwise it rejoins the layout.
     n.fx = null; n.fy = null;
-    n.vx = 0; n.vy = 0;
+    n.vx = vx; n.vy = vy;
     if (this.sim) this.sim.alphaTarget(0);
     if (this.sim && !this.frozen) this.sim.alpha(Math.max(this.sim.alpha(), RELEASE_ALPHA));
     this.dirty = true;
     this.loop();
   }
 
-  private cancelDrag(): void { this.endDrag(); }
+  private cancelDrag(): void { this.endDrag(false); }
 
   /* ============================================================ frame loop */
 
@@ -1129,11 +1173,24 @@ export class Renderer {
         if (this.stepZoom(dt)) again = true;
         this.dirty = true;
       }
+      if (this.dragging && this.grip) {
+        // The lean towards a drop target eases in, and lets go at once.
+        const want = this.dropTarget && this.verdict?.ok && this.animate ? 1 : 0;
+        this.magnet = want ? this.magnet + (1 - this.magnet) * (1 - Math.exp(-dt / MAGNET_MS)) : 0;
+        if (want && this.magnet < 0.99) again = true;
+        this.placeCarried();
+        this.dirty = true;
+      }
       const sim = this.sim;
       if (sim && !this.frozen && (sim.alpha() > sim.alphaMin() || (this.dragging && this.animate))) {
-        if (this.animate) { sim.tick(); again = true; this.dirty = true; }
+        if (this.animate) {
+          // Step at a fixed 60 a second: a 120 Hz display must not run the layout twice as fast.
+          this.stepDebt = Math.min(this.stepDebt + dt, STEP_MS * MAX_STEPS);
+          while (this.stepDebt >= STEP_MS) { sim.tick(); this.stepDebt -= STEP_MS; }
+          again = true; this.dirty = true;
+        }
         else { this.settle(sim.alphaMin(), 400); this.dirty = true; }
-      }
+      } else this.stepDebt = STEP_MS;
       if (this.viewAnim) {
         const a = this.viewAnim;
         const p = Math.min(1, (performance.now() - a.t0) / a.ms);
